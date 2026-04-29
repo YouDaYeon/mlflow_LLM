@@ -1,0 +1,33 @@
+.DS_Store
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.venv/
+venv/
+env/
+
+# Logs and local env
+*.log
+.env
+.env.*
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+coverage/
+
+# Prevent committing frontend build/dev artifacts
+frontend-next/.next/
+frontend-next/node_modules/
+frontend/node_modules/
