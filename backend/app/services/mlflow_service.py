@@ -37,22 +37,30 @@ def get_experiment(experiment_name: str) -> dict:
     }
 
 
-# def _search_runs_df(experiment_name: str) -> pd.DataFrame:
-#     experiment = _get_experiment_or_404(experiment_name)
-#     return mlflow.search_runs(experiment_ids=[experiment.experiment_id])
-
-
 def _search_runs_df(experiment_name: str) -> pd.DataFrame:
     experiment = _get_experiment_or_404(experiment_name)
-    runs_df = mlflow.search_runs(experiment_ids=[experiment.experiment_id])
-    selected_columns = RunBase.select_columns(list(runs_df.columns))
-    return runs_df[selected_columns]
+    return mlflow.search_runs(experiment_ids=[experiment.experiment_id])
 
-################ 여기 get_runs 수정 필요
+################ 여기 get_runs 나중에 지울거임 (지금은 일단 두고 각 run 세부 함수 추가 후 지울 수 있게)
 def get_runs(experiment_name: str) -> list[dict]:
     runs = _search_runs_df(experiment_name)
     return runs.to_dict(orient="records")
 
+## tags 관련 함수 추가
+# [c for i, c in enumerate(runs_df.columns) if c.startswith("tags.")]
+# ['tags.mlflow.user', 'tags.mlflow.source.type', 'tags.mlflow.source.name', 'tags.mlflow.runName']
+def list_run_names(experiment_name: str) -> list[str]:
+    runs_df = _search_runs_df(experiment_name)
+    return runs_df["tags.mlflow.runName"].unique().tolist()
+
+def list_run_users(experiment_name: str) -> list[str]:
+    runs_df = _search_runs_df(experiment_name)
+    return runs_df["tags.mlflow.user"].unique().tolist()
+
+## metric 관련 함수 추가
+def list_run_metrics(experiment_name: str) -> list[str]:
+    runs_df = _search_runs_df(experiment_name)
+    return runs_df.columns[runs_df.columns.str.startswith("metrics.")].tolist()
 
 def _normalize_metric_key(metric_key: str) -> str:
     return metric_key if metric_key.startswith(METRIC_PREFIX) else f"{METRIC_PREFIX}{metric_key}"
