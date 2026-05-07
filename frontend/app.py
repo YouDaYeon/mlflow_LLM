@@ -1,11 +1,32 @@
-import json
-from datetime import datetime
 from typing import Any
 
 import requests
 import streamlit as st
 
+from backend.app.schemas import RunDisplayRow
+
 st.title("MLflow + FastAPI + Streamlit 템플릿")
+st.markdown(
+    """
+    <style>
+    /* Keep chatbot markdown tables/messages inside dialog width */
+    [data-testid="stChatMessage"] table {
+        width: 100% !important;
+        table-layout: fixed;
+    }
+    [data-testid="stChatMessage"] th,
+    [data-testid="stChatMessage"] td {
+        white-space: normal !important;
+        word-break: break-word;
+    }
+    [data-testid="stChatMessage"] code {
+        white-space: pre-wrap !important;
+        word-break: break-all;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 API_BASE_URL = "http://localhost:8010"
 DEFAULT_TOP_K_LABEL = "Default(전체)"
@@ -35,8 +56,9 @@ CHAT_EXAMPLE_QUESTIONS = [
     "실험 목록 보여줘",
     "최근 실험 알려줘",
     "이 실험의 metric key 목록 알려줘",
-    "Metric key가 0.8 이상 run 보여줘",
-    "보고서 기반 요약 답변 해줘"
+    "최근 30일 running 상태 run 보여줘",
+    "runs top k=10 보여줘",
+    "보고서 기반 요약 해줘"
 ]
 
 
@@ -52,59 +74,6 @@ def _safe_request(method: str, endpoint: str, *, timeout: int, **kwargs: Any) ->
     except requests.RequestException as exc:
         st.error(f"백엔드 요청 실패: {exc}")
         return None
-
-
-def _split_run_start_time(started: object) -> tuple[str, str]:
-    if started is None:
-        return "-", "-"
-    if isinstance(started, (int, float)) and not isinstance(started, bool):
-        ts = float(started)
-        if ts > 1e12:
-            ts /= 1000.0
-        try:
-            dt = datetime.fromtimestamp(ts)
-            return dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M:%S")
-        except (ValueError, OSError):
-            return "-", "-"
-    s = str(started).strip()
-    if not s or s.lower() in ("none", "nan", "nat"):
-        return "-", "-"
-    try:
-        ts = float(s)
-        if ts > 1e12:
-            ts /= 1000.0
-        dt = datetime.fromtimestamp(ts)
-        return dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M:%S")
-    except ValueError:
-        pass
-    try:
-        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-        return dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M:%S")
-    except ValueError:
-        return s, "-"
-
-
-def _runs_to_display_table(runs_data: list[dict]) -> list[dict]:
-    out: list[dict] = []
-    for r in runs_data:
-        date_s, time_s = _split_run_start_time(r.get("start_time"))
-        rest = {
-            "run_id": r.get("run_id"),
-            "metric_key": r.get("metric_key"),
-            "params": r.get("params") or {},
-            "metrics": r.get("metrics") or {},
-        }
-        out.append(
-            {
-                "Name": r.get("run_name") or "-",
-                "Score": r.get("metric_score"),
-                "Status": r.get("status") or "-",
-                "Date": date_s,
-                "Time": time_s,
-                "Parameters": json.dumps(rest, ensure_ascii=False),
-            }
-        )
-    return out
 
 
 def _build_run_summaries_from_raw_runs(raw_runs: list[dict[str, Any]], metric_key: str) -> list[dict[str, Any]]:
@@ -211,11 +180,9 @@ def _fetch_runs_for_view(exp: str, metric: str, selected_top_k: Any) -> tuple[li
         st.error(f"Top runs 조회 실패 ({response.status_code})")
         st.code(response.text)
         return [], {}
-    return response.json().get("top_runs", []), {
-        "experiment_name": exp,
-        "metric_key": metric,
-        "top_k": int(selected_top_k),
-    }
+    raw_runs = response.json().get("top_runs", [])
+
+    return raw_runs, {"experiment_name": exp, "metric_key": metric, "top_k": int(selected_top_k)}
 
 
 def _generate_report(exp: str, metric: str, selected_top_k: Any) -> None:
@@ -268,6 +235,13 @@ def _generate_report(exp: str, metric: str, selected_top_k: Any) -> None:
     st.markdown(body.get("report", ""))
 
 
+def _render_chat_bubble(role: str, content: str) -> None:
+    if role == "assistant":
+        st.markdown(content)
+    else:
+        st.write(content)
+
+
 def _append_and_answer_chat(
     user_prompt: str,
     current_experiment: str,
@@ -308,7 +282,7 @@ def _append_and_answer_chat(
     st.session_state["chat_messages"].append({"role": "assistant", "content": answer})
     with st.chat_message("assistant"):
         st.caption(f"intent: {intent}")
-        st.write(answer)
+        _render_chat_bubble("assistant", answer)
 
 
 _init_session_defaults()
@@ -409,7 +383,10 @@ else:
         f"`{runs_meta.get('metric_key', '-')}` 기준 {len(runs_data)}개 "
         f"(K={runs_meta.get('top_k', '-')})"
     )
-    st.dataframe(_runs_to_display_table(runs_data), use_container_width=True)
+    st.dataframe(
+        [RunDisplayRow.from_summary_dict(r).to_dataframe_row() for r in runs_data],
+        use_container_width=True,
+    )
 
 
 
@@ -432,7 +409,7 @@ def show_chat_dialog() -> None:
 
     for message in st.session_state["chat_messages"]:
         with st.chat_message(message["role"]):
-            st.write(message["content"])
+            _render_chat_bubble(message["role"], message["content"])
 
     st.caption("예시 질문")
     example_cols = st.columns(2)

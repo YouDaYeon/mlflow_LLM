@@ -13,6 +13,8 @@ def chat_with_experiment(payload: ChatRequest) -> ChatResponse:
     experiment_intents = [
         "list_experiments",
         "list_recent_experiments",
+        "get_experiment",
+        "get_runs",
         "list_metric_keys",
         "filter_runs_by_metric",
         "search_runs",

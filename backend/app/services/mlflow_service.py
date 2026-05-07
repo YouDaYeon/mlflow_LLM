@@ -3,7 +3,7 @@ import pandas as pd
 
 from fastapi import HTTPException
 from backend.app.config import settings
-from backend.app.schemas import RunBase, RunSummary
+from backend.app.schemas import RunSummary
 
 # MLflow 실험 설정
 mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
@@ -36,17 +36,15 @@ def get_experiment(experiment_name: str) -> dict:
         "creation_time": experiment.creation_time,
     }
 
-
 def _search_runs_df(experiment_name: str) -> pd.DataFrame:
     experiment = _get_experiment_or_404(experiment_name)
     return mlflow.search_runs(experiment_ids=[experiment.experiment_id])
-
-################ 여기 get_runs 나중에 지울거임 (지금은 일단 두고 각 run 세부 함수 추가 후 지울 수 있게)
+    
 def get_runs(experiment_name: str) -> list[dict]:
     runs = _search_runs_df(experiment_name)
     return runs.to_dict(orient="records")
 
-## tags 관련 함수 추가
+## tags 관련 함수
 # [c for i, c in enumerate(runs_df.columns) if c.startswith("tags.")]
 # ['tags.mlflow.user', 'tags.mlflow.source.type', 'tags.mlflow.source.name', 'tags.mlflow.runName']
 def list_run_names(experiment_name: str) -> list[str]:
@@ -57,17 +55,10 @@ def list_run_users(experiment_name: str) -> list[str]:
     runs_df = _search_runs_df(experiment_name)
     return runs_df["tags.mlflow.user"].unique().tolist()
 
-## metric 관련 함수 추가
+## metric 관련 함수
 def list_run_metrics(experiment_name: str) -> list[str]:
     runs_df = _search_runs_df(experiment_name)
-    return runs_df.columns[runs_df.columns.str.startswith("metrics.")].tolist()
-
-def _normalize_metric_key(metric_key: str) -> str:
-    return metric_key if metric_key.startswith(METRIC_PREFIX) else f"{METRIC_PREFIX}{metric_key}"
-
-
-def _metric_columns(runs_df: pd.DataFrame) -> list[str]:
-    return sorted([col for col in runs_df.columns if col.startswith(METRIC_PREFIX)])
+    return sorted(runs_df.columns[runs_df.columns.str.startswith("metrics.")].tolist())
 
 
 def _scored_runs_df(runs_df: pd.DataFrame, metric_column: str) -> pd.DataFrame:
@@ -76,7 +67,6 @@ def _scored_runs_df(runs_df: pd.DataFrame, metric_column: str) -> pd.DataFrame:
         return scored_df
     scored_df[metric_column] = pd.to_numeric(scored_df[metric_column], errors="coerce")
     return scored_df
-
 
 def _to_iso_start_time(value: object) -> str | None:
     if pd.isna(value):
@@ -109,100 +99,30 @@ def _row_to_run_summary(row: pd.Series, metric_column: str) -> RunSummary:
         metrics=metrics,
     )
 
-
-
-
-
-
-
-
-# chat service에서 이용
-def search_runs_with_filters(
+def get_top_runs(
     experiment_name: str,
-    *,
-    recent_days: int | None = None,
-    user: str | None = None,
-    status: str | None = None,
-    tag_key: str | None = None,
-    tag_value: str | None = None,
-    top_k: int | None = None,
-    metric_key: str | None = None,
-) -> list[dict]:
+    metric_key: str,
+    top_k: int,
+    ascending: bool = False,
+) -> list[RunSummary]:
+    if top_k <= 0:
+        raise HTTPException(status_code=400, detail="top_k는 1 이상의 정수여야 합니다.")
+
     runs_df = _search_runs_df(experiment_name)
-    if runs_df.empty:
+    metric_column = metric_key
+    if metric_column not in runs_df.columns:
+        raise HTTPException(status_code=404, detail=f"metric_key를 찾을 수 없습니다: {metric_key}")
+
+    scored_df = _scored_runs_df(runs_df, metric_column)
+    if scored_df.empty:
         return []
 
-    filtered = runs_df.copy()
-
-    if recent_days is not None and recent_days > 0 and "start_time" in filtered.columns:
-        start_times = pd.to_datetime(filtered["start_time"], unit="ms", errors="coerce")
-        cutoff = pd.Timestamp.utcnow() - pd.Timedelta(days=recent_days)
-        filtered = filtered[start_times >= cutoff]
-
-    if user:
-        user_col = "tags.mlflow.user" if "tags.mlflow.user" in filtered.columns else None
-        if user_col:
-            user_mask = filtered[user_col].astype(str).str.lower() == user.lower()
-            filtered = filtered[user_mask]
-        else:
-            return []
-
-    if status and "status" in filtered.columns:
-        filtered = filtered[filtered["status"].astype(str).str.upper() == status.upper()]
-
-    if tag_key:
-        full_tag_col = tag_key if tag_key.startswith("tags.") else f"tags.{tag_key}"
-        if full_tag_col in filtered.columns:
-            if tag_value:
-                filtered = filtered[filtered[full_tag_col].astype(str) == tag_value]
-            else:
-                filtered = filtered[filtered[full_tag_col].notna()]
-        else:
-            return []
-
-    if filtered.empty:
-        return []
-
-    if top_k is not None and top_k > 0:
-        if not metric_key:
-            raise HTTPException(status_code=400, detail="top_k 조회 시 metric_key가 필요합니다.")
-
-        top_runs = get_top_runs(
-            experiment_name=experiment_name,
-            metric_key=metric_key,
-            top_k=top_k,
-            ascending=False,
-        )
-        allowed_run_ids = set(filtered["run_id"].astype(str).tolist()) if "run_id" in filtered.columns else set()
-        top_run_ids = [run.run_id for run in top_runs if run.run_id in allowed_run_ids]
-        if not top_run_ids:
-            return []
-
-        filtered_by_top = filtered[filtered["run_id"].astype(str).isin(top_run_ids)].copy()
-        order_map = {run_id: idx for idx, run_id in enumerate(top_run_ids)}
-        filtered_by_top["_rank_order"] = filtered_by_top["run_id"].astype(str).map(order_map)
-        filtered = filtered_by_top.sort_values(by="_rank_order", ascending=True)
-    elif "start_time" in filtered.columns:
-        sort_start = pd.to_datetime(filtered["start_time"], unit="ms", errors="coerce")
-        filtered = filtered.assign(_sort_start=sort_start).sort_values(by="_sort_start", ascending=False)
-
-    result: list[dict] = []
-    for _, row in filtered.iterrows():
-        result.append(
-            {
-                "run_id": str(row.get("run_id", "")),
-                "run_name": str(row.get("tags.mlflow.runName", "")),
-                "status": str(row.get("status", "")),
-                "start_time": _to_iso_start_time(row.get("start_time")),
-                "created_by": str(row.get("tags.mlflow.user") or row.get("user_id") or ""),
-            }
-        )
-    return result
+    top_df = scored_df.sort_values(by=metric_column, ascending=ascending).head(top_k)
+    return [_row_to_run_summary(row, metric_column) for _, row in top_df.iterrows()]
 
 
-def get_metric_keys(experiment_name: str) -> list[str]:
-    runs_df = _search_runs_df(experiment_name)
-    return _metric_columns(runs_df)
+
+
 
 
 def _resolve_metric_column(metric_columns: list[str], metric_query: str) -> str | None:
@@ -240,7 +160,7 @@ def filter_runs_by_metric_threshold(
     limit: int = 20,
 ) -> tuple[str, list[dict]]:
     runs_df = _search_runs_df(experiment_name)
-    metric_columns = _metric_columns(runs_df)
+    metric_columns = sorted(runs_df.columns[runs_df.columns.str.startswith(METRIC_PREFIX)].tolist())
     metric_column = _resolve_metric_column(metric_columns, metric_query)
     if not metric_column:
         raise HTTPException(status_code=404, detail=f"metric_key를 찾을 수 없습니다: {metric_query}")
@@ -282,29 +202,6 @@ def filter_runs_by_metric_threshold(
         )
     return metric_column, result
 
-
-def get_top_runs(
-    experiment_name: str,
-    metric_key: str,
-    top_k: int,
-    ascending: bool = False,
-) -> list[RunSummary]:
-    if top_k <= 0:
-        raise HTTPException(status_code=400, detail="top_k는 1 이상의 정수여야 합니다.")
-
-    runs_df = _search_runs_df(experiment_name)
-    metric_column = _normalize_metric_key(metric_key)
-    if metric_column not in runs_df.columns:
-        raise HTTPException(status_code=404, detail=f"metric_key를 찾을 수 없습니다: {metric_key}")
-
-    scored_df = _scored_runs_df(runs_df, metric_column)
-    if scored_df.empty:
-        return []
-
-    top_df = scored_df.sort_values(by=metric_column, ascending=ascending).head(top_k)
-    return [_row_to_run_summary(row, metric_column) for _, row in top_df.iterrows()]
-
-# chat service에서 이용
 def list_recent_experiment_names(limit: int = 5) -> list[str]:
     experiments = mlflow.search_experiments()
     sorted_experiments = sorted(experiments, key=lambda exp: exp.creation_time or 0, reverse=True)
