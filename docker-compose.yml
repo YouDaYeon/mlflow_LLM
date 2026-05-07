@@ -1,0 +1,33 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://127.0.0.1:2522}
+      LLAMA_BASE_URL: ${LLAMA_BASE_URL:-http://127.0.0.1:9976/v1}
+      LLAMA_API_KEY: ${LLAMA_API_KEY:-llama-local}
+      LLAMA_MODEL: ${LLAMA_MODEL:-gemma-4-31B-it-UD-Q8_K_XL}
+      LLAMA_TEMPERATURE: ${LLAMA_TEMPERATURE:-0.2}
+    ports:
+      - "8010:8010"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    environment:
+      API_BASE_URL: ${API_BASE_URL:-http://backend:8010}
+    ports:
+      - "8501:8501"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

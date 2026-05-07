@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 import requests
@@ -28,7 +29,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-API_BASE_URL = "http://localhost:8010"
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8010")
 DEFAULT_TOP_K_LABEL = "Default(전체)"
 NO_SELECTION_LABEL = "(선택 안함)"
 DIRECT_INPUT_LABEL = "(직접 입력)"

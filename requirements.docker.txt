@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+mlflow
+pandas
+openai
+requests
+streamlit
