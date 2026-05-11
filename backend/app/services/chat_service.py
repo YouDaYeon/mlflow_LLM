@@ -351,12 +351,12 @@ def answer_experiment_question(
             RunDisplayRow.from_mlflow_raw(r, metric_key)
             for r in runs
         ]
-        # Score(선택 metric 기준) 내림차순; 없으면 맨 뒤로
-        rows = sorted(
-            rows,
-            key=lambda r: r.score if r.score is not None else float("-inf"),
-            reverse=True,
-        )
+        # # Score(선택 metric 기준) 내림차순; 없으면 맨 뒤로
+        # rows = sorted(
+        #     rows,
+        #     key=lambda r: r.score if r.score is not None else float("-inf"),
+        #     reverse=True,
+        # )
         preview_rows = rows[:MAX_RUNS_PREVIEW]
         answer = _format_run_display_markdown(target_experiment, len(runs), preview_rows)
         return (

@@ -4,7 +4,7 @@ from typing import Any
 import requests
 import streamlit as st
 
-from backend.app.schemas import RunDisplayRow
+from backend.app.schemas import RunDisplayRow, format_display_datetime
 
 st.title("MLflow + FastAPI + Streamlit 템플릿")
 st.markdown(
@@ -29,7 +29,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8010")
+# API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8010")
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8888")
 DEFAULT_TOP_K_LABEL = "Default(전체)"
 NO_SELECTION_LABEL = "(선택 안함)"
 DIRECT_INPUT_LABEL = "(직접 입력)"
@@ -335,20 +336,23 @@ def show_experiment_info_dialog(exp_name: str) -> None:
     data = response.json().get("experiment", {})
     st.success("실험 정보를 조회했습니다.")
     st.subheader("Experiment Overview")
-    c1, c2 = st.columns(2)
-    c1.metric("Experiment ID", data.get("experiment_id", "-"))
-    c2.metric("Lifecycle Stage", data.get("lifecycle_stage", "-"))
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Experiment Name", data.get("experiment_name", "-"))
+    c2.metric("Experiment ID", data.get("experiment_id", "-"))
+    c3.metric("Lifecycle Stage", data.get("lifecycle_stage", "-"))
     st.subheader("Details")
-    st.write(f"**Name**: `{exp_name}`")
+    # st.write(data)
     st.write(f"**Artifact Location**: `{data.get('artifact_location', '-')}`")
-    st.write(f"**Creation Time**: `{data.get('creation_time', '-')}`")
+    st.write(f"**Creation Time**: `{format_display_datetime(data.get('creation_time'))}`")
+    st.write(f"**Last Update Time**: `{format_display_datetime(data.get('last_update_time'))}`")
+    st.write(f"**Trace Location**: `{data.get('trace_location', '-')}`")
+    st.write(f"**Workspace**: `{data.get('workspace', '-')}`")
     st.subheader("Tags")
     tags = data.get("tags", {})
     if tags:
         st.json(tags)
     else:
         st.caption("등록된 태그가 없습니다.")
-
 
 if view_experiment_clicked:
     if not selected_experiment.strip():

@@ -11,6 +11,12 @@ mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
 METRIC_PREFIX = "metrics."
 PARAM_PREFIX = "params."
 
+
+def get_tracking_uri():
+    """MLflow tracking URI 조회"""
+    tracking_uri = mlflow.get_tracking_uri()
+    return tracking_uri
+
 def list_experiment_names() -> list[str]:
     """MLflow에 등록된 Experiment 이름 목록(정렬)."""
     experiments = mlflow.search_experiments()
@@ -29,11 +35,15 @@ def _get_experiment_or_404(experiment_name: str):
 def get_experiment(experiment_name: str) -> dict:
     experiment = _get_experiment_or_404(experiment_name)
     return {
+        "experiment_name": experiment.name,
         "experiment_id": experiment.experiment_id,
         "artifact_location": experiment.artifact_location,
-        "tags": experiment.tags,
         "lifecycle_stage": experiment.lifecycle_stage,
+        "tags": experiment.tags,
         "creation_time": experiment.creation_time,
+        "last_update_time": experiment.last_update_time,
+        "trace_location": experiment.trace_location,
+        "workspace": experiment.workspace,
     }
 
 def _search_runs_df(experiment_name: str) -> pd.DataFrame:
@@ -121,88 +131,17 @@ def get_top_runs(
     return [_row_to_run_summary(row, metric_column) for _, row in top_df.iterrows()]
 
 
-
-
-
-
-def _resolve_metric_column(metric_columns: list[str], metric_query: str) -> str | None:
-    if not metric_columns:
-        return None
-
-    q = metric_query.strip().lower()
-    if not q:
-        return None
-
-    exact = [col for col in metric_columns if col.lower() == q]
-    if exact:
-        return exact[0]
-
-    with_prefix = q if q.startswith(METRIC_PREFIX) else f"{METRIC_PREFIX}{q}"
-    exact_with_prefix = [col for col in metric_columns if col.lower() == with_prefix]
-    if exact_with_prefix:
-        return exact_with_prefix[0]
-
-    no_prefix_exact = [col for col in metric_columns if col.removeprefix(METRIC_PREFIX).lower() == q]
-    if no_prefix_exact:
-        return no_prefix_exact[0]
-
-    contains = [col for col in metric_columns if q in col.lower() or q in col.removeprefix(METRIC_PREFIX).lower()]
-    if contains:
-        return sorted(contains, key=len)[0]
-
-    return None
-
-
-def filter_runs_by_metric_threshold(
-    experiment_name: str,
-    metric_query: str,
-    conditions: list[tuple[str, float]],
-    limit: int = 20,
-) -> tuple[str, list[dict]]:
-    runs_df = _search_runs_df(experiment_name)
-    metric_columns = sorted(runs_df.columns[runs_df.columns.str.startswith(METRIC_PREFIX)].tolist())
-    metric_column = _resolve_metric_column(metric_columns, metric_query)
-    if not metric_column:
-        raise HTTPException(status_code=404, detail=f"metric_key를 찾을 수 없습니다: {metric_query}")
-
-    scored_df = _scored_runs_df(runs_df, metric_column)
-    if scored_df.empty:
-        return metric_column, []
-
-    filtered = scored_df
-    for operator, threshold in conditions:
-        if operator == ">":
-            filtered = filtered[filtered[metric_column] > threshold]
-        elif operator == ">=":
-            filtered = filtered[filtered[metric_column] >= threshold]
-        elif operator == "<":
-            filtered = filtered[filtered[metric_column] < threshold]
-        elif operator == "<=":
-            filtered = filtered[filtered[metric_column] <= threshold]
-        elif operator == "==":
-            filtered = filtered[filtered[metric_column] == threshold]
-        else:
-            raise HTTPException(status_code=400, detail=f"지원하지 않는 연산자입니다: {operator}")
-
-    if filtered.empty:
-        return metric_column, []
-
-    has_upper_bound = any(op in {"<", "<="} for op, _ in conditions)
-    sorted_df = filtered.sort_values(by=metric_column, ascending=has_upper_bound).head(limit)
-    result = []
-    for _, row in sorted_df.iterrows():
-        result.append(
-            {
-                "run_id": str(row.get("run_id", "")),
-                "run_name": str(row.get("tags.mlflow.runName", "")),
-                "status": str(row.get("status", "")),
-                "metric_score": float(row[metric_column]),
-                "metric_key": metric_column,
-            }
-        )
-    return metric_column, result
-
 def list_recent_experiment_names(limit: int = 5) -> list[str]:
     experiments = mlflow.search_experiments()
     sorted_experiments = sorted(experiments, key=lambda exp: exp.creation_time or 0, reverse=True)
     return [exp.name for exp in sorted_experiments[:limit]]
+
+
+#### test
+def test():
+    experiments = mlflow.search_experiments()
+
+    # if runs is None or runs.empty:
+    #     return {"message": "No runs"}
+
+    return experiments

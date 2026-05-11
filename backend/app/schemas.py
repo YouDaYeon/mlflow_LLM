@@ -38,6 +38,16 @@ def split_run_start_time(started: object) -> tuple[str, str]:
         return s, "-"
 
 
+def format_display_datetime(value: object) -> str:
+    """UI 출력용 datetime 문자열(YYYY-MM-DD HH:MM:SS)로 정규화한다."""
+    date_s, time_s = split_run_start_time(value)
+    if date_s == "-" and time_s == "-":
+        return "-"
+    if time_s == "-":
+        return date_s
+    return f"{date_s} {time_s}"
+
+
 class RunDisplayDetails(BaseModel):
     """Streamlit `Parameters` 컬럼에 넣는 JSON 페이로드."""
 

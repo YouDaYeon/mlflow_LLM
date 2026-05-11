@@ -1,16 +1,22 @@
 from fastapi import APIRouter
 
 from backend.app.services.mlflow_service import (
+    get_tracking_uri as get_tracking_uri_service,
+    list_experiment_names,
     get_experiment as get_experiment_service,
     list_run_metrics,
     get_runs as get_runs_service,
     get_top_runs as get_top_runs_service,
-    list_experiment_names,
+
+    test as test_service,
 )
 
 router = APIRouter(prefix="/mlflow", tags=["mlflow"])
 
-
+# mlflow 설정 확인용
+@router.get("/tracking-uri")
+def get_tracking_uri():
+    return get_tracking_uri_service()
 
 @router.get("/names")
 def get_experiment_names():
@@ -31,3 +37,7 @@ def get_top_runs(experiment_name: str, metric_key: str, top_k: int, ascending: b
 @router.get("/metric-keys")
 def get_metric_keys(experiment_name: str):
     return {"metric_keys": list_run_metrics(experiment_name)}
+
+@router.get("/test")
+def get_test():
+    return test_service()
