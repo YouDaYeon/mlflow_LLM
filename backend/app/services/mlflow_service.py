@@ -1,6 +1,8 @@
 import mlflow
 import pandas as pd
 
+from typing import Any
+
 from fastapi import HTTPException
 from backend.app.config import settings
 from backend.app.schemas import RunSummary
@@ -145,3 +147,34 @@ def test():
     #     return {"message": "No runs"}
 
     return experiments
+
+
+def mlflow_mcp_stdio_params() -> dict[str, Any]:
+    """agents.mcp.MCPServerStdio용 stdio 파라미터(uv가 mlflow[mcp] 의존성을 함께 받아온다)."""
+    return {
+        "command": "uv",
+        "args": ["run", "--with", "mlflow[mcp]>=3.5.1", "mlflow", "mcp", "run"],
+        "env": {"MLFLOW_TRACKING_URI": settings.mlflow_tracking_uri},
+    }
+
+
+async def mlflow_mcp_health() -> tuple[bool, list[str], str | None]:
+    """MCP 세션 초기화까지 성공하면 True와 노출된 도구 이름 목록을 반환한다."""
+    from agents.mcp import MCPServerManager, MCPServerStdio
+
+    server = MCPServerStdio(
+        params=mlflow_mcp_stdio_params(),
+        name="mlflow-mcp",
+        cache_tools_list=True,
+    )
+    try:
+        async with MCPServerManager([server], strict=False) as manager:
+            if not manager.active_servers:
+                err = next(iter(manager.errors.values()), None)
+                return False, [], repr(err) if err else "MCP 연결 실패(원인 없음)"
+            mcp = manager.active_servers[0]
+            tools = await mcp.list_tools(None, None)
+            names = sorted({t.name for t in tools if t.name})
+            return True, names, None
+    except Exception as exc:  # noqa: BLE001  # 헬스 체크용
+        return False, [], f"{type(exc).__name__}: {exc}"

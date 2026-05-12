@@ -277,3 +277,12 @@ class ChatResponse(BaseModel):
     answer: str
     intent: str
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class McpHealthResponse(BaseModel):
+    """MLflow MCP(stdio) 세션·도구 목록 로드 여부."""
+
+    ok: bool
+    mlflow_tracking_uri: str
+    tool_names: list[str] = Field(default_factory=list)
+    error: str | None = None

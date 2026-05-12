@@ -2,8 +2,9 @@ import json
 import re
 from datetime import datetime, timedelta
 
-from fastapi import HTTPException
 from openai import OpenAI
+from agents import Agent, MultiProvider, Runner, RunConfig
+from agents.mcp import MCPServerManager, MCPServerStdio
 
 from backend.app.config import settings
 from backend.app.schemas import ExpDisplayRow, RunDisplayRow
@@ -13,6 +14,7 @@ from backend.app.services.mlflow_service import (
     list_run_metrics,
     get_experiment,
     get_runs,
+    mlflow_mcp_stdio_params,
 )
 
 ALLOWED_INTENTS = {
@@ -23,8 +25,9 @@ ALLOWED_INTENTS = {
     "get_runs",
     "search_runs",
     "report_qa",
+    "mlflow_mcp",
 }
-DEFAULT_INTENT = "report_qa"
+DEFAULT_INTENT = "mlflow_mcp"
 MAX_EXPERIMENT_PREVIEW = 20
 MAX_RUNS_PREVIEW = 20
 MAX_RECENT_EXPERIMENTS = 5
@@ -35,7 +38,7 @@ INTENT_CLASSIFICATION_PROMPT = (
     "사용자 메시지를 아래 intent 중 하나로만 분류하라. "
     "반드시 JSON 한 줄로만 답하라. 형식: {\"intent\":\"...\"}\n"
     "intent 후보: list_experiments, list_recent_experiments, list_metric_keys, get_experiment, get_runs, "
-    "search_runs, report_qa\n"
+    "search_runs, report_qa, mlflow_mcp\n"
     "규칙:\n"
     "- '어떤 실험(들) 있/있어/보여'처럼 실험 이름 나열·전체 목록: list_experiments\n"
     "- 최근/최신 실험만: list_recent_experiments\n"
@@ -43,7 +46,8 @@ INTENT_CLASSIFICATION_PROMPT = (
     "- 선택한 실험의 메타(이름, id, artifact 경로, 생성 시각, 태그 등)·개요·상세 정보: get_experiment\n"
     "- 선택한 실험의 run 전체/목록/리스트(숫자 조건 없이 나열만): get_runs\n"
     "- 기간/상태/태그/실험자/top_k 등 복합 조건 검색: search_runs\n"
-    "- 보고서·요약·왜·어떻게 같은 서술형 Q&A: report_qa\n"
+    "- 보고서 기반 질문에 답변: report_qa\n"
+    "- 위 모든 질문에 답변할 수 없으면 mlflow_mcp를 사용해 답변: mlflow_mcp\n"
     "예시:\n"
     "- '실험 목록 보여줘' -> list_experiments\n"
     "- '이 실험 정보 알려줘' -> get_experiment\n"
@@ -102,7 +106,7 @@ def _heuristic_intent(message: str) -> str | None:
     # 검색 신호(기간/실험자/태그/상태/top_k)가 있으면 get_runs보다 search_runs를 우선한다.
     has_run_term = re.search(r"(?:\bruns?\b|런)", m, re.IGNORECASE) is not None
     has_search_signal = re.search(
-        r"(최근\s*\d+\s*일|실험자|사용자|유저|태그|running|finished|failed|killed|완료|실패|중단|top[\s_-]*k\s*[:=]?\s*\d+|상위\s*\d+)",
+        r"(최근\s*\d+\s*일|실험자|사용자|user|유저|태그|running|finished|failed|killed|완료|실패|중단|top[\s_-]*k\s*[:=]?\s*\d+|상위\s*\d+)",
         m,
         re.IGNORECASE,
     ) is not None
@@ -423,6 +427,7 @@ def answer_experiment_question(
     return f"지원하지 않는 실험 요청입니다: {intent}", intent, {"experiment_name": target_experiment}
 
 def answer_report_question(
+    intent: str,
     message: str,
     report_text: str | None,
     experiment_name: str | None,
@@ -430,7 +435,7 @@ def answer_report_question(
 ) -> tuple[str, str, dict]:
 
     if not report_text:
-        return "생성된 report_text가 없어 리포트 질문에 답할 수 없습니다.", DEFAULT_INTENT, {}
+        return "생성된 report_text가 없어 리포트 질문에 답할 수 없습니다.", intent, {}
 
     payload = {
         "question": message,
@@ -447,7 +452,49 @@ def answer_report_question(
         ],
     )
     answer = (completion.choices[0].message.content or "").strip()
-    return answer, DEFAULT_INTENT, {"experiment_name": experiment_name, "metric_key": metric_key}
+    return answer, intent, {"experiment_name": experiment_name, "metric_key": metric_key}
 
 
+async def run_with_mcp(
+    message: str,
+) -> tuple[str, str, dict]:
+    server = MCPServerStdio(
+        params=mlflow_mcp_stdio_params(),
+        name="mlflow-mcp",
+        cache_tools_list=True,
+    )
+    async with MCPServerManager([server], strict=False) as manager:
+        if not manager.active_servers:
+            err = next(iter(manager.errors.values()), None)
+            detail = repr(err) if err else "연결 실패(상세 없음)"
+            return (
+                f"MLflow MCP에 연결하지 못했습니다: {detail}",
+                DEFAULT_INTENT,
+                {"mcp_connected": False, "error": detail},
+            )
+
+        agent = Agent(
+            name="MCP Helper",
+            instructions=(
+                "제공된 MCP 도구를 사용해 사용자 질문에 답하세요.\n"
+                "도구 호출이 필요하면 적극적으로 사용하세요."
+            ),
+            model=settings.llama_model,
+            mcp_servers=manager.active_servers,
+        )
+        result = await Runner.run(
+            starting_agent=agent,
+            input=message,
+            run_config=RunConfig(
+                tracing_disabled=True,         # openapi 트레이싱 끔
+                model_provider=MultiProvider(
+                    openai_api_key=settings.llama_api_key,
+                    openai_base_url=settings.llama_base_url,
+                    openai_use_responses=False,
+                ),
+            ),
+        )
+        answer = result.final_output
+
+    return answer, DEFAULT_INTENT, {"mcp_connected": True}
 
