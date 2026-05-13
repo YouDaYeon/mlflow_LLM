@@ -15,6 +15,8 @@ async def chat_with_experiment(payload: ChatRequest) -> ChatResponse:
 
     intent = classify_intent(payload.message)
 
+    # intent = "mlflow_mcp"
+
     experiment_intents = [
         "list_experiments",
         "list_recent_experiments",
