@@ -13,7 +13,14 @@ async def chat_with_experiment(payload: ChatRequest) -> ChatResponse:
         run_with_mcp,
     )
 
-    intent = classify_intent(payload.message)
+    intent, intent_args = classify_intent(payload.message)
+
+    if intent_args is not None:
+        experiment_name = intent_args.get("experiment_name") if intent_args.get("experiment_name") is not None else payload.experiment_name
+        metric_key = intent_args.get("metric_key") if intent_args.get("metric_key") is not None else payload.metric_key
+        top_k = intent_args.get("top_k") or None
+        ascending = intent_args.get("ascending") or False
+
 
     # intent = "mlflow_mcp"
 
@@ -30,17 +37,19 @@ async def chat_with_experiment(payload: ChatRequest) -> ChatResponse:
     if intent in experiment_intents:
         answer, intent, metadata = answer_experiment_question(
             intent=intent,
-            experiment_name=payload.experiment_name,
             message=payload.message,
-            metric_key=payload.metric_key,
+            experiment_name=experiment_name,
+            metric_key=metric_key,
+            top_k=top_k,
+            ascending=ascending,
         )
     elif intent == "report_qa":
         answer, intent, metadata = answer_report_question(
             intent=intent,
             message=payload.message,
             report_text=payload.report_text,
-            experiment_name=payload.experiment_name,
-            metric_key=payload.metric_key,
+            experiment_name=experiment_name,
+            metric_key=metric_key,
         )
     else:
         answer, intent, metadata = await run_with_mcp(
