@@ -120,6 +120,51 @@ INTENT_PARSING_PROMPT = (
     "{\"intent\":\"report_qa\",\"arguments\":{}}\n\n"
 )
 
+SEARCH_RUNS_FILTER_PARSING_PROMPT = (
+    "당신은 MLflow run 검색 필터 추출기(Query Parser)이다.\n"
+    "사용자 메시지에서 run 검색에 쓰일 '기간/상태/실험자/태그' 조건만 추출하라.\n"
+    "반드시 JSON 한 줄로만 응답하라.\n\n"
+
+    "출력 형식:\n"
+    "{\"recent_days\":null,\"status\":null,\"user\":null,\"tag_key\":null,\"tag_value\":null}\n\n"
+
+    "=== 필드 정의 ===\n"
+    "- recent_days: 정수. '최근 N일', '지난 N일', 'last N days' 등 기간 조건의 N.\n"
+    "  기간 조건이 없으면 null.\n"
+    "- status: MLflow run 상태. 아래 중 하나 또는 null.\n"
+    "  RUNNING | FINISHED | FAILED | KILLED\n"
+    "  한국어/영어 예: running/실행중, finished/완료, failed/실패, killed/중단\n"
+    "- user: 실험자(MLflow user) 식별자 문자열. '실험자', '사용자', '유저', 'user' 뒤 값.\n"
+    "  없으면 null.\n"
+    "- tag_key, tag_value: MLflow 태그 key/value 쌍. '태그 key=value', 'tag key: value' 등.\n"
+    "  둘 다 있을 때만 채우고, 하나만 있으면 둘 다 null.\n\n"
+
+    "=== 규칙 ===\n"
+    "1. metric_key, top_k, experiment_name, 정렬(ascending)은 추출하지 않는다.\n"
+    "2. 메시지에 명시된 정보만 추출하고, 추론·가정하지 않는다.\n"
+    "3. 조건이 없는 필드는 반드시 null이다 (빈 문자열 \"\" 사용 금지).\n"
+    "4. status는 반드시 대문자 enum(RUNNING, FINISHED, FAILED, KILLED)만 사용한다.\n"
+    "5. user, tag_key, tag_value는 사용자가 말한 값을 그대로 유지한다.\n"
+    "6. 절대 설명하지 말고 JSON만 출력한다.\n\n"
+
+    "=== 예시 ===\n"
+
+    "사용자: 최근 7일 finished run 보여줘\n"
+    "{\"recent_days\":7,\"status\":\"FINISHED\",\"user\":null,\"tag_key\":null,\"tag_value\":null}\n\n"
+
+    "사용자: 실험자 alice가 실행한 failed runs\n"
+    "{\"recent_days\":null,\"status\":\"FAILED\",\"user\":\"alice\",\"tag_key\":null,\"tag_value\":null}\n\n"
+
+    "사용자: 태그 env=prod 인 run 목록\n"
+    "{\"recent_days\":null,\"status\":null,\"user\":null,\"tag_key\":\"env\",\"tag_value\":\"prod\"}\n\n"
+
+    "사용자: 최근 3일 동안 사용자 bob이 돌린 running run, 태그 stage=train\n"
+    "{\"recent_days\":3,\"status\":\"RUNNING\",\"user\":\"bob\",\"tag_key\":\"stage\",\"tag_value\":\"train\"}\n\n"
+
+    "사용자: mAP top 5\n"
+    "{\"recent_days\":null,\"status\":null,\"user\":null,\"tag_key\":null,\"tag_value\":null}\n\n"
+)
+
 REPORT_QA_SYSTEM_PROMPT = (
     "당신은 실험 리포트 Q&A 어시스턴트다.\n"
     "아래 규칙을 반드시 지켜라:\n"
@@ -251,45 +296,83 @@ def _format_run_display_markdown(experiment_name: str, total: int, rows: list[Ru
     return "\n".join(lines)
 
 
-def _parse_search_runs_query(message: str) -> dict[str, object]:
-    """기간/상태/실험자/태그/top_k 조건을 사용자 문장에서 추출한다."""
-    msg = (message or "").strip()
-    lower_msg = msg.lower()
+_ALLOWED_RUN_STATUSES = frozenset({"RUNNING", "FINISHED", "FAILED", "KILLED"})
 
-    recent_days: int | None = None
-    m_days = re.search(r"최근\s*(\d+)\s*일", msg)
-    if m_days:
-        recent_days = int(m_days.group(1))
 
-    status: str | None = None
-    if "running" in lower_msg:
-        status = "RUNNING"
-    elif "finished" in lower_msg or "완료" in msg:
-        status = "FINISHED"
-    elif "failed" in lower_msg or "실패" in msg:
-        status = "FAILED"
-    elif "killed" in lower_msg or "중단" in msg:
-        status = "KILLED"
-
-    user: str | None = None
-    m_user = re.search(r"(?:실험자|사용자|유저)\s*[:=]?\s*([A-Za-z0-9._-]+)", msg)
-    if m_user:
-        user = m_user.group(1).strip()
-
-    tag_key: str | None = None
-    tag_value: str | None = None
-    m_tag = re.search(r"태그\s*[:=]?\s*([A-Za-z0-9._/-]+)\s*[:=]\s*([A-Za-z0-9._/-]+)", msg)
-    if m_tag:
-        tag_key = m_tag.group(1).strip()
-        tag_value = m_tag.group(2).strip()
-
+def _empty_search_runs_filters() -> dict[str, object]:
     return {
-        "recent_days": recent_days,
-        "status": status,
-        "user": user,
-        "tag_key": tag_key,
-        "tag_value": tag_value
+        "recent_days": None,
+        "status": None,
+        "user": None,
+        "tag_key": None,
+        "tag_value": None,
     }
+
+def _parse_search_runs_filters_from_llm_raw(raw: str) -> dict[str, object]:
+    text = (raw or "").strip()
+    if not text:
+        return _empty_search_runs_filters()
+
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        return _empty_search_runs_filters()
+
+    parsed = json.loads(match.group(0))
+    if not isinstance(parsed, dict):
+        return _empty_search_runs_filters()
+        
+    # LLM JSON을 dict로 정규화
+    out = _empty_search_runs_filters()
+
+    recent_days = parsed.get("recent_days")
+    if isinstance(recent_days, int) and recent_days > 0:
+        out["recent_days"] = recent_days
+    elif isinstance(recent_days, str) and recent_days.strip().isdigit():
+        days = int(recent_days.strip())
+        if days > 0:
+            out["recent_days"] = days
+
+    status = parsed.get("status")
+    if isinstance(status, str) and status.strip():
+        normalized = status.strip().upper()
+        if normalized in _ALLOWED_RUN_STATUSES:
+            out["status"] = normalized
+
+    user = parsed.get("user")
+    if isinstance(user, str) and user.strip():
+        out["user"] = user.strip()
+
+    tag_key = parsed.get("tag_key")
+    tag_value = parsed.get("tag_value")
+    if (
+        isinstance(tag_key, str)
+        and tag_key.strip()
+        and isinstance(tag_value, str)
+        and tag_value.strip()
+    ):
+        out["tag_key"] = tag_key.strip()
+        out["tag_value"] = tag_value.strip()
+
+    return out
+
+
+def _parse_search_runs_query(message: str) -> dict[str, object]:
+    """기간/상태/실험자/태그 조건을 사용자 문장에서 LLM으로 추출한다."""
+    msg = (message or "").strip()
+    if not msg:
+        return _empty_search_runs_filters()
+
+    completion = _client().chat.completions.create(
+        model=settings.llama_model,
+        temperature=0,
+        messages=[
+            {"role": "system", "content": SEARCH_RUNS_FILTER_PARSING_PROMPT},
+            {"role": "user", "content": msg},
+        ],
+    )
+    raw = (completion.choices[0].message.content or "").strip()
+    
+    return _parse_search_runs_filters_from_llm_raw(raw)
 
 
 def _to_epoch_seconds(value: object) -> float | None:
@@ -464,6 +547,14 @@ def answer_experiment_question(
         if isinstance(top_k, int) and top_k > 0 and not metric_key:
             return (
                 "top_k 검색에는 metric_key 선택이 필요합니다. metric을 선택한 뒤 다시 시도해 주세요.",
+                intent,
+                {"experiment_name": target_experiment, "filters": filters},
+            )
+        
+        # 없는 metric_key를 입력했을 경우
+        if metric_key not in list_run_metrics(target_experiment):
+            return(
+                f"{metric_key}가 없습니다. {target_experiment}의 metric 키 목록을 조회해 주세요.",
                 intent,
                 {"experiment_name": target_experiment, "filters": filters},
             )
