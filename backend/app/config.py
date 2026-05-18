@@ -7,6 +7,8 @@ BACKEND_ROOT = Path(__file__).resolve().parent.parent
 
 class Settings(BaseSettings):
     mlflow_tracking_uri: str = "http://127.0.0.1:2522"
+    # uv run으로 mlflow mcp 기동 시 initialize/list_tools가 5초를 넘기기 쉬움
+    mcp_client_session_timeout_seconds: float = 60.0
 
     # chat
     chat_base_url: str = "http://127.0.0.1:9978"

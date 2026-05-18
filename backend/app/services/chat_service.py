@@ -5,7 +5,7 @@ from typing import Any, Dict, Tuple, Union
 
 from openai import OpenAI
 from agents import Agent, MultiProvider, Runner, RunConfig
-from agents.mcp import MCPServerManager, MCPServerStdio
+from agents.mcp import MCPServerManager
 
 from backend.app.config import settings
 from backend.app.schemas import ExpDisplayRow, RunDisplayRow
@@ -15,7 +15,8 @@ from backend.app.services.mlflow_service import (
     list_run_metrics,
     get_experiment,
     get_runs,
-    mlflow_mcp_stdio_params,
+    create_mlflow_mcp_server,
+    extract_tool_calls,
 )
 
 ALLOWED_INTENTS = {
@@ -535,11 +536,7 @@ def answer_report_question(
 async def run_with_mcp(
     message: str,
 ) -> tuple[str, str, dict]:
-    server = MCPServerStdio(
-        params=mlflow_mcp_stdio_params(),
-        name="mlflow-mcp",
-        cache_tools_list=True,
-    )
+    server = create_mlflow_mcp_server()
     async with MCPServerManager([server], strict=False) as manager:
         if not manager.active_servers:
             err = next(iter(manager.errors.values()), None)
@@ -572,6 +569,8 @@ async def run_with_mcp(
             ),
         )
         answer = result.final_output
+        tool_calls = extract_tool_calls(result)
+        answer = f"Tool Calls: {tool_calls}\n\n {answer}"
 
-    return answer, DEFAULT_INTENT, {"mcp_connected": True}
+    return answer, DEFAULT_INTENT, {"mcp_connected": True, "tool_calls": tool_calls}
 

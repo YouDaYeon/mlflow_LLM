@@ -158,15 +158,23 @@ def mlflow_mcp_stdio_params() -> dict[str, Any]:
     }
 
 
-async def mlflow_mcp_health() -> tuple[bool, list[str], str | None]:
-    """MCP 세션 초기화까지 성공하면 True와 노출된 도구 이름 목록을 반환한다."""
-    from agents.mcp import MCPServerManager, MCPServerStdio
+def create_mlflow_mcp_server():
+    """MLflow MCP stdio 서버 인스턴스(공통 타임아웃·캐시 설정)."""
+    from agents.mcp import MCPServerStdio
 
-    server = MCPServerStdio(
+    return MCPServerStdio(
         params=mlflow_mcp_stdio_params(),
         name="mlflow-mcp",
         cache_tools_list=True,
+        client_session_timeout_seconds=settings.mcp_client_session_timeout_seconds,
     )
+
+
+async def mlflow_mcp_health() -> tuple[bool, list[str], str | None]:
+    """MCP 세션 초기화까지 성공하면 True와 노출된 도구 이름 목록을 반환한다."""
+    from agents.mcp import MCPServerManager
+
+    server = create_mlflow_mcp_server()
     try:
         async with MCPServerManager([server], strict=False) as manager:
             if not manager.active_servers:
@@ -178,3 +186,18 @@ async def mlflow_mcp_health() -> tuple[bool, list[str], str | None]:
             return True, names, None
     except Exception as exc:  # noqa: BLE001  # 헬스 체크용
         return False, [], f"{type(exc).__name__}: {exc}"
+
+# MCP 결과에서 tool_calls 추출
+def extract_tool_calls(result):
+    tool_calls = []
+
+    for step in getattr(result, "steps", []):
+        if hasattr(step, "tool_calls"):
+            for call in step.tool_calls:
+                tool_calls.append({
+                    "tool": call.name,
+                    "arguments": call.arguments,
+                })
+    if not tool_calls:
+        tool_calls = ['No tool calls']
+    return tool_calls
