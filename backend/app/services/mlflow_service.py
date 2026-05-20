@@ -1,3 +1,5 @@
+import sys
+
 import mlflow
 import pandas as pd
 
@@ -150,10 +152,10 @@ def test():
 
 
 def mlflow_mcp_stdio_params() -> dict[str, Any]:
-    """agents.mcp.MCPServerStdio용 stdio 파라미터(uv가 mlflow[mcp] 의존성을 함께 받아온다)."""
+    """agents.mcp.MCPServerStdio용 stdio 파라미터(현재 Python + mlflow[mcp] 필요)."""
     return {
-        "command": "uv",
-        "args": ["run", "--with", "mlflow[mcp]>=3.5.1", "mlflow", "mcp", "run"],
+        "command": sys.executable,
+        "args": ["-m", "mlflow", "mcp", "run"],
         "env": {"MLFLOW_TRACKING_URI": settings.mlflow_tracking_uri},
     }
 

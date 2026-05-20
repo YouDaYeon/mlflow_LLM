@@ -39,28 +39,6 @@ MAX_RECENT_EXPERIMENTS = 5
 MAX_METRIC_KEYS_PREVIEW = 30
 MAX_FILTER_RUNS_PREVIEW = 20
 
-# INTENT_CLASSIFICATION_PROMPT = (
-#     "사용자 메시지를 아래 intent 중 하나로만 분류하라. "
-#     "반드시 JSON 한 줄로만 답하라. 형식: {\"intent\":\"...\"}\n"
-#     "intent 후보: list_experiments, list_recent_experiments, list_metric_keys, get_experiment, get_runs, "
-#     "search_runs, report_qa, mlflow_mcp\n"
-#     "규칙:\n"
-#     "- '어떤 실험(들) 있/있어/보여'처럼 실험 이름 나열·전체 목록: list_experiments\n"
-#     "- 최근/최신 실험만: list_recent_experiments\n"
-#     "- metric 키/지표 이름 목록: list_metric_keys\n"
-#     "- 선택한 실험의 메타(이름, id, artifact 경로, 생성 시각, 태그 등)·개요·상세 정보: get_experiment\n"
-#     "- 선택한 실험의 run 전체/목록/리스트(숫자 조건 없이 나열만): get_runs\n"
-#     "- 기간/상태/태그/실험자/top_k 등 복합 조건 검색: search_runs\n"
-#     "- 보고서 기반 질문에 답변: report_qa\n"
-#     "- 위 모든 질문에 답변할 수 없으면 mlflow_mcp를 사용해 답변: mlflow_mcp\n"
-#     "예시:\n"
-#     "- '실험 목록 보여줘' -> list_experiments\n"
-#     "- '이 실험 정보 알려줘' -> get_experiment\n"
-#     "- 'metric key 뭐 있어' -> list_metric_keys\n"
-#     "- 'run 목록', 'runs 보여줘' -> get_runs\n"
-#     "- 'YOLO26 실험 목록 보여줘' -> list_experiments(yolo26) \n"
-# )
-
 INTENT_PARSING_PROMPT = (
     "당신은 MLflow 실험 QA 시스템의 Query Parser이다.\n"
     "사용자 메시지를 분석하여 '의도(intent)'와 '필요한 인자(arguments)'를 추출하라.\n"
@@ -180,67 +158,6 @@ REPORT_QA_SYSTEM_PROMPT = (
 def _client() -> OpenAI:
     return OpenAI(base_url=settings.chat_base_url, api_key=settings.chat_api_key)
     # return OpenAI(base_url=settings.llama_base_url, api_key=settings.llama_api_key)
-
-
-# def _intent_from_llm_raw(raw: str) -> str:
-#     text = (raw or "").strip()
-#     if not text:
-#         return DEFAULT_INTENT
-#     if text.startswith("```"):
-#         lines = [ln for ln in text.splitlines() if ln.strip() and not ln.strip().startswith("```")]
-#         text = "\n".join(lines).strip()
-#     try:
-#         parsed = json.loads(text)
-#         intent = parsed.get("intent", DEFAULT_INTENT)
-#     except json.JSONDecodeError:
-#         m = re.search(r'"intent"\s*:\s*"([^"]+)"', text)
-#         intent = m.group(1) if m else DEFAULT_INTENT
-#     return intent if intent in ALLOWED_INTENTS else DEFAULT_INTENT
-
-
-# def _heuristic_intent(message: str) -> str | None:
-#     """모델 없이도 자주 쓰는 표현은 규칙으로 고정해 분류 흔들림을 줄인다."""
-#     m = message.strip()
-#     if not m:
-#         return None
-#     lower = m.lower()
-
-#     if re.search(
-#         r"(실험\s*목록|실험\s*리스트|실험\s*들\s*뭐|어떤\s*실험|전체\s*실험)",
-#         m,
-#     ) and "run" not in lower:
-#         return "list_experiments"
-
-#     if re.search(r"(최근\s*실험|최신\s*실험)", m):
-#         return "list_recent_experiments"
-
-#     # 검색 신호(기간/실험자/태그/상태/top_k)가 있으면 get_runs보다 search_runs를 우선한다.
-#     has_run_term = re.search(r"(?:\bruns?\b|런)", m, re.IGNORECASE) is not None
-#     has_search_signal = re.search(
-#         r"(최근\s*\d+\s*일|실험자|사용자|user|유저|태그|running|finished|failed|killed|완료|실패|중단|top[\s_-]*k\s*[:=]?\s*\d+|상위\s*\d+)",
-#         m,
-#         re.IGNORECASE,
-#     ) is not None
-#     if has_run_term and has_search_signal:
-#         return "search_runs"
-
-#     if has_run_term:
-#         return "get_runs"
-
-#     if re.search(
-#         r"(실험\s*정보|experiment\s*정보|실험\s*개요|실험\s*상세|아티팩트\s*경로|artifact)",
-#         m,
-#         re.IGNORECASE,
-#     ) and not re.search(r"목록|리스트", m):
-#         return "get_experiment"
-
-#     if re.search(r"(metric\s*key|metric\s*키|지표\s*키|메트릭\s*목록)", m, re.IGNORECASE):
-#         return "list_metric_keys"
-
-#     if re.search(r"(보고서|리포트|report|summary|요약)", m, re.IGNORECASE):
-#         return "report_qa"
-
-#     return None
 
 def classify_intent(message: str) -> Tuple[str, Dict[str, Any]]:
     # hinted = _heuristic_intent(message)
@@ -371,7 +288,7 @@ def _parse_search_runs_query(message: str) -> dict[str, object]:
         ],
     )
     raw = (completion.choices[0].message.content or "").strip()
-    
+
     return _parse_search_runs_filters_from_llm_raw(raw)
 
 

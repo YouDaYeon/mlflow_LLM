@@ -5,6 +5,12 @@ services:
       dockerfile: backend/Dockerfile
     environment:
       MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://127.0.0.1:2522}
+
+      CHAT_BASE_URL: ${CHAT_BASE_URL:-http://127.0.0.1:9978}
+      CHAT_API_KEY: ${CHAT_API_KEY:-llama-local}
+      CHAT_MODEL: ${CHAT_MODEL:-Qwen3.6-35B-A3B}
+      CHAT_TEMPERATURE: ${CHAT_TEMPERATURE:-0.2}
+
       LLAMA_BASE_URL: ${LLAMA_BASE_URL:-http://127.0.0.1:9976/v1}
       LLAMA_API_KEY: ${LLAMA_API_KEY:-llama-local}
       LLAMA_MODEL: ${LLAMA_MODEL:-gemma-4-31B-it-UD-Q8_K_XL}

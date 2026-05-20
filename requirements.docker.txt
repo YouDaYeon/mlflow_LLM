@@ -2,8 +2,9 @@ fastapi
 uvicorn[standard]
 pydantic
 pydantic-settings
-mlflow
+mlflow[mcp]>=3.5.1
 pandas
 openai
+openai-agents
 requests
 streamlit
