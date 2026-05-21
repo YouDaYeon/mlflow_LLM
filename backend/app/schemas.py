@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from typing import Any, ClassVar
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -209,35 +210,6 @@ class ExpDisplayRow(BaseModel):
         return self.model_dump(by_alias=True)
 
 
-
-# class RunBase(BaseModel):
-
-#     BASE_COLUMNS: ClassVar[tuple[str, ...]] = (
-#         "run_id",
-#         "experiment_id",
-#         "status",
-#         "artifact_uri",
-#         "start_time",
-#         "end_time",
-#     )
-#     COLUMN_PREFIX_GROUPS: ClassVar[tuple[tuple[str, ...], ...]] = (
-#         ("metrics.",),
-#         ("params.",),
-#         ("tags.",),
-#     )
-
-#     @classmethod
-#     def select_columns(cls, all_columns: list[str]) -> list[str]:
-#         base_columns = [column for column in cls.BASE_COLUMNS if column in all_columns]
-#         grouped_columns = [
-#             column
-#             for column in all_columns
-#             if any(column.startswith(prefix) for group in cls.COLUMN_PREFIX_GROUPS for prefix in group)
-#         ]
-#         return [*base_columns, *grouped_columns]
-
-
-
 class RunSummary(BaseModel):
     run_id: str
     run_name: str
@@ -249,14 +221,15 @@ class RunSummary(BaseModel):
     metrics: dict[str, float]
 
 
-
 # report
 class ReportRequest(BaseModel):
     experiment_name: str = Field(..., min_length=1)
-    metric_key: str = Field(default="metrics/mAP50-95(B)")
+    metric_key: str = Field(...)
     top_runs: list[RunSummary] = Field(..., min_length=1, max_length=3)
 
 class ReportResponse(BaseModel):
+    id: UUID
+    created_at: datetime
     experiment_name: str
     metric_key: str
     report: str
@@ -265,13 +238,24 @@ class ReportResponse(BaseModel):
     metadata: dict[str, Any]
 
 
+class ReportListItem(BaseModel):
+    id: UUID
+    created_at: datetime
+    experiment_name: str
+    metric_key: str
+    report_title: str
+
+
+class ReportListResponse(BaseModel):
+    items: list[ReportListItem]
+
+
 # chat
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1)
     report_text: str | None = None
     experiment_name: str | None = None
     metric_key: str | None = None
-
 
 class ChatResponse(BaseModel):
     answer: str

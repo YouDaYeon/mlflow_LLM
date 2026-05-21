@@ -16,6 +16,12 @@ class Settings(BaseSettings):
     chat_model: str = "Qwen3.6-35B-A3B"
     chat_temperature: float = 0.2
 
+    # database
+    # 로컬 uvicorn: compose postgres 호스트 포트(기본 5435). 컨테이너 backend: postgres:5432
+    database_url: str = (
+        "postgresql+psycopg://mlflow_llm:mlflow_llm@127.0.0.1:5435/reports"
+    )
+
     # report
     llama_base_url: str = "http://127.0.0.1:9976/v1"
     llama_api_key: str = "llama-local"

@@ -19,6 +19,8 @@ env/
 *.log
 .env
 .env.*
+db-data/
+pgadmin-data/
 
 # Node / Next.js
 node_modules/

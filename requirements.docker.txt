@@ -8,3 +8,5 @@ openai
 openai-agents
 requests
 streamlit
+sqlalchemy>=2.0,<3
+psycopg[binary]>=3.1

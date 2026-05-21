@@ -1,7 +1,9 @@
 from fastapi import APIRouter
+
 from backend.app.schemas import ChatRequest, ChatResponse
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
 
 @router.post("/ask", response_model=ChatResponse)
 async def chat_with_experiment(payload: ChatRequest) -> ChatResponse:
@@ -15,14 +17,26 @@ async def chat_with_experiment(payload: ChatRequest) -> ChatResponse:
 
     intent, intent_args = classify_intent(payload.message)
 
+    experiment_name = payload.experiment_name
+    metric_key = payload.metric_key
+    top_k = None
+    ascending = False
+
     if intent_args is not None:
-        experiment_name = intent_args.get("experiment_name") if intent_args.get("experiment_name") is not None else payload.experiment_name
-        metric_key = intent_args.get("metric_key") if intent_args.get("metric_key") is not None else payload.metric_key
+        experiment_name = (
+            intent_args.get("experiment_name")
+            if intent_args.get("experiment_name") is not None
+            else payload.experiment_name
+        )
+        metric_key = (
+            intent_args.get("metric_key")
+            if intent_args.get("metric_key") is not None
+            else payload.metric_key
+        )
         top_k = intent_args.get("top_k") or None
         ascending = intent_args.get("ascending") or False
 
-
-    # intent = "mlflow_mcp"
+    report_text = payload.report_text
 
     experiment_intents = [
         "list_experiments",
@@ -47,7 +61,7 @@ async def chat_with_experiment(payload: ChatRequest) -> ChatResponse:
         answer, intent, metadata = answer_report_question(
             intent=intent,
             message=payload.message,
-            report_text=payload.report_text,
+            report_text=report_text,
             experiment_name=experiment_name,
             metric_key=metric_key,
         )

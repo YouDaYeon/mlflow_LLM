@@ -19,9 +19,9 @@ def _report_title(experiment_name: str) -> str:
     return f"{experiment_name} 실험 분석 보고서"
 
 
-def _ensure_report_title(report: str, experiment_name: str) -> str:
+def _ensure_report_title(report_content: str, experiment_name: str) -> str:
     title = _report_title(experiment_name)
-    cleaned = report.strip()
+    cleaned = report_content.strip()
     if not cleaned:
         return title
     if title in cleaned.splitlines()[0]:

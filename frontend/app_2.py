@@ -209,6 +209,92 @@ def _fetch_runs_for_view(exp: str, metric: str, selected_top_k: Any) -> tuple[li
     return raw_runs, {"experiment_name": exp, "metric_key": metric, "top_k": int(selected_top_k)}
 
 
+def _apply_report_from_body(body: dict[str, Any], *, experiment_name: str = "", metric_key: str = "") -> None:
+    st.session_state["generated_report_text"] = body.get("report", "")
+    st.session_state["generated_report_title"] = body.get("report_title", "")
+    st.session_state["generated_report_meta"] = {
+        "experiment_name": experiment_name or body.get("experiment_name", ""),
+        "metric_key": metric_key or body.get("metric_key", ""),
+        "model": body.get("model", "-"),
+        "metadata": body.get("metadata", {}),
+        "created_at": body.get("created_at", ""),
+    }
+
+
+# 보고서 목록 조회
+def _fetch_saved_reports(
+    experiment_name: str | None = None,
+    *,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    params: dict[str, Any] = {"limit": limit}
+    if experiment_name:
+        params["experiment_name"] = experiment_name
+
+    response = _safe_request("GET", "/report/", params=params, timeout=30)
+    if response is None:
+        return []
+    if response.status_code != 200:
+        st.error(f"저장된 보고서 목록 조회 실패 ({response.status_code})")
+        st.code(response.text)
+        return []
+    return response.json().get("items", [])
+
+
+def _saved_reports_table_rows(items: list[dict[str, Any]]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for item in items:
+        rows.append(
+            {
+                "Report ID": str(item.get("id", "-")),
+                "Title": str(item.get("report_title", "-")),
+                "Experiment": str(item.get("experiment_name", "-")),
+                "Metric": str(item.get("metric_key", "-")),
+                "Model": str(item.get("model", "-")),
+                "Created At": format_display_datetime(item.get("created_at")),
+            }
+        )
+    return rows
+
+
+def _render_saved_reports_panel(
+    *,
+    experiment_name: str,
+    panel_key: str,
+    show_filter: bool = True,
+) -> None:
+    filter_current_experiment = False
+    if show_filter:
+        filter_current_experiment = st.checkbox(
+            "현재 선택한 실험만 보기",
+            value=bool(experiment_name and experiment_name != DIRECT_INPUT_LABEL),
+            key=f"{panel_key}_filter_current_experiment",
+        )
+
+    exp_filter: str | None = None
+    if filter_current_experiment and experiment_name and experiment_name != DIRECT_INPUT_LABEL:
+        exp_filter = experiment_name.strip()
+
+    refresh_clicked = st.button("목록 새로고침", key=f"{panel_key}_refresh_reports", use_container_width=True)
+
+    cache_key = f"{panel_key}_saved_reports"
+    cache_filter_key = f"{panel_key}_saved_reports_filter"
+    if (
+        refresh_clicked
+        or cache_key not in st.session_state
+        or st.session_state.get(cache_filter_key) != exp_filter
+    ):
+        st.session_state[cache_key] = _fetch_saved_reports(exp_filter)
+        st.session_state[cache_filter_key] = exp_filter
+
+    items: list[dict[str, Any]] = st.session_state.get(cache_key, [])
+    if not items:
+        st.caption("저장된 보고서가 없습니다.")
+        return
+
+    st.dataframe(_saved_reports_table_rows(items), use_container_width=True, hide_index=True)
+
+
 def _generate_report(exp: str, metric: str, selected_top_k: Any) -> None:
     report_top_k = 3 if selected_top_k == DEFAULT_TOP_K_LABEL else min(int(selected_top_k), 3)
     if selected_top_k == DEFAULT_TOP_K_LABEL or int(selected_top_k) > 3:
@@ -251,14 +337,7 @@ def _generate_report(exp: str, metric: str, selected_top_k: Any) -> None:
         return
 
     body = report_response.json()
-    st.session_state["generated_report_text"] = body.get("report", "")
-    st.session_state["generated_report_title"] = body.get("report_title", "")
-    st.session_state["generated_report_meta"] = {
-        "experiment_name": exp,
-        "metric_key": metric,
-        "model": body.get("model", "-"),
-        "metadata": body.get("metadata", {}),
-    }
+    _apply_report_from_body(body, experiment_name=exp, metric_key=metric)
 
 
 def _render_chat_bubble(role: str, content: str) -> None:
@@ -277,21 +356,19 @@ def _append_and_answer_chat(
     with st.chat_message("user"):
         st.write(user_prompt)
 
-    chat_payload = {"message": user_prompt}
-    # 리포트 생성 여부와 무관하게 현재 선택한 실험/metric 문맥을 전달한다.
-    if current_experiment and current_experiment != DIRECT_INPUT_LABEL:
-        chat_payload["experiment_name"] = current_experiment
-    if current_metric and current_metric != NO_SELECTION_LABEL:
-        chat_payload["metric_key"] = current_metric
-
+    chat_payload: dict[str, Any] = {"message": user_prompt}
     report_text = st.session_state.get("generated_report_text", "")
     report_meta = st.session_state.get("generated_report_meta", {})
     if report_text:
         chat_payload["report_text"] = report_text
-        if report_meta.get("experiment_name"):
-            chat_payload["experiment_name"] = report_meta.get("experiment_name")
-        if report_meta.get("metric_key"):
-            chat_payload["metric_key"] = report_meta.get("metric_key")
+    if report_meta.get("experiment_name"):
+        chat_payload["experiment_name"] = report_meta.get("experiment_name")
+    elif current_experiment and current_experiment != DIRECT_INPUT_LABEL:
+        chat_payload["experiment_name"] = current_experiment
+    if report_meta.get("metric_key"):
+        chat_payload["metric_key"] = report_meta.get("metric_key")
+    elif current_metric and current_metric != NO_SELECTION_LABEL:
+        chat_payload["metric_key"] = current_metric
 
     chat_response = _safe_request("POST", "/chat/ask", json=chat_payload, timeout=30)
     if chat_response is None:
@@ -355,7 +432,10 @@ def show_chat_dialog() -> None:
     exp_label = current_experiment if current_experiment else "-"
     metric_label = current_metric if current_metric and current_metric != NO_SELECTION_LABEL else "-"
     report_label = current_report_title if current_report_title else "-"
-    st.caption(f"현재 참조 문맥: experiment `{exp_label}` · metric `{metric_label}` · report `{report_label}`")
+    st.caption(
+        f"현재 참조 문맥: experiment `{exp_label}` · metric `{metric_label}` · "
+        f"report `{report_label}`"
+    )
 
     for message in st.session_state["chat_messages"]:
         with st.chat_message(message["role"]):
@@ -399,7 +479,7 @@ with st.sidebar:
     st.session_state["selected_experiment"] = selected_experiment.strip()
 
     metric_keys: list[str] = []
-    if selected_experiment.strip():
+    if selected_experiment.strip() and selected_experiment.strip() != DIRECT_INPUT_LABEL:
         metric_keys = _fetch_metric_keys(selected_experiment.strip())
 
     selected_metric = st.selectbox(
@@ -432,6 +512,12 @@ with st.sidebar:
         key="sidebar_generate_report_btn",
         type="primary",
     )
+
+    with st.expander("저장된 보고서", expanded=True):
+        _render_saved_reports_panel(
+            experiment_name=selected_experiment.strip(),
+            panel_key="sidebar",
+        )
 
 
 # =========================================================================
@@ -491,6 +577,13 @@ else:
 # =========================================================================
 st.divider()
 st.subheader("보고서")
+
+with st.expander("저장된 보고서 목록", expanded=True):
+    _render_saved_reports_panel(
+        experiment_name=(st.session_state.get("selected_experiment") or "").strip(),
+        panel_key="main",
+    )
+
 report_text = st.session_state.get("generated_report_text", "")
 report_meta = st.session_state.get("generated_report_meta", {})
 if not report_text:
