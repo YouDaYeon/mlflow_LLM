@@ -28,6 +28,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     environment:
+      DATABASE_URL: postgresql+psycopg://mlflow_llm:mlflow_llm@postgres:5432/reports
       MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://127.0.0.1:2522}
 
       CHAT_BASE_URL: ${CHAT_BASE_URL:-http://127.0.0.1:9978}
@@ -39,6 +40,8 @@ services:
       LLAMA_API_KEY: ${LLAMA_API_KEY:-llama-local}
       LLAMA_MODEL: ${LLAMA_MODEL:-gemma-4-31B-it-UD-Q8_K_XL}
       LLAMA_TEMPERATURE: ${LLAMA_TEMPERATURE:-0.2}
+    depends_on:
+      - postgres
     ports:
       - "8010:8010"
     restart: unless-stopped
