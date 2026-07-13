@@ -51,11 +51,13 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8010")
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8888")
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8011")
 DEFAULT_TOP_K_LABEL = "Default(전체)"
 NO_SELECTION_LABEL = "(선택 안함)"
 DIRECT_INPUT_LABEL = "(직접 입력)"
+
+CHAT_HISTORY_LIMIT = int(os.getenv("CHAT_HISTORY_LIMIT", "6"))
+CHAT_WELCOME_MESSAGE = "안녕하세요. 실험 관련 질문을 입력해 주세요."
 
 SESSION_DEFAULTS: dict[str, Any] = {
     "experiment_names": [],
@@ -68,10 +70,15 @@ SESSION_DEFAULTS: dict[str, Any] = {
     "generated_report_text": "",
     "generated_report_title": "",
     "generated_report_meta": {},
+    "report_edit_mode": False,
+    "report_edit_draft": "",
+    "report_edit_title_draft": "",
+    "chat_session_id": None,
+    "chat_resolved_context": {},  # intent 후처리된 experiment/metric/top_k
     "chat_messages": [
         {
             "role": "assistant",
-            "content": "안녕하세요. 실험 관련 질문을 입력해 주세요.",
+            "content": CHAT_WELCOME_MESSAGE,
         }
     ],
 }
@@ -209,16 +216,28 @@ def _fetch_runs_for_view(exp: str, metric: str, selected_top_k: Any) -> tuple[li
     return raw_runs, {"experiment_name": exp, "metric_key": metric, "top_k": int(selected_top_k)}
 
 
-def _apply_report_from_body(body: dict[str, Any], *, experiment_name: str = "", metric_key: str = "") -> None:
+def _apply_report_from_body(
+    body: dict[str, Any],
+    *,
+    experiment_name: str = "",
+    metric_key: str = "",
+    source: str = "generated",
+) -> None:
     st.session_state["generated_report_text"] = body.get("report", "")
     st.session_state["generated_report_title"] = body.get("report_title", "")
     st.session_state["generated_report_meta"] = {
+        "id": str(body.get("id", "")),
         "experiment_name": experiment_name or body.get("experiment_name", ""),
         "metric_key": metric_key or body.get("metric_key", ""),
         "model": body.get("model", "-"),
         "metadata": body.get("metadata", {}),
         "created_at": body.get("created_at", ""),
+        "updated_at": body.get("updated_at", "") or body.get("created_at", ""),
+        "source": source,
     }
+    # widget key는 인스턴스화 이후에 수정하면 안 됨 → 다음 런에서 정리
+    st.session_state["report_edit_mode"] = False
+    st.session_state["_pending_clear_report_edit_drafts"] = True
 
 
 # 보고서 목록 조회
@@ -241,20 +260,89 @@ def _fetch_saved_reports(
     return response.json().get("items", [])
 
 
+def _fetch_saved_report(report_id: str) -> dict[str, Any] | None:
+    response = _safe_request("GET", f"/report/{report_id}", timeout=30)
+    if response is None:
+        return None
+    if response.status_code == 404:
+        st.error("선택한 보고서를 찾을 수 없습니다.")
+        return None
+    if response.status_code != 200:
+        st.error(f"저장된 보고서 조회 실패 ({response.status_code})")
+        st.code(response.text)
+        return None
+    return response.json()
+
+
+def _delete_saved_report(report_id: str) -> bool:
+    response = _safe_request("DELETE", f"/report/{report_id}", timeout=30)
+    if response is None:
+        return False
+    if response.status_code == 404:
+        st.error("삭제할 보고서를 찾을 수 없습니다.")
+        return False
+    if response.status_code not in (200, 204):
+        st.error(f"보고서 삭제 실패 ({response.status_code})")
+        st.code(response.text)
+        return False
+    return True
+
+
+def _update_saved_report(
+    report_id: str,
+    *,
+    report: str,
+    report_title: str | None = None,
+) -> dict[str, Any] | None:
+    payload: dict[str, Any] = {"report": report}
+    if report_title is not None:
+        payload["report_title"] = report_title
+    response = _safe_request("PATCH", f"/report/{report_id}", json=payload, timeout=30)
+    if response is None:
+        return None
+    if response.status_code == 404:
+        st.error("수정할 보고서를 찾을 수 없습니다.")
+        return None
+    if response.status_code != 200:
+        st.error(f"보고서 수정 실패 ({response.status_code})")
+        st.code(response.text)
+        return None
+    return response.json()
+
+
+def _clear_main_report_if_matching(report_id: str) -> None:
+    meta = st.session_state.get("generated_report_meta") or {}
+    if str(meta.get("id") or "") == str(report_id):
+        st.session_state["generated_report_text"] = ""
+        st.session_state["generated_report_title"] = ""
+        st.session_state["generated_report_meta"] = {}
+        st.session_state["report_edit_mode"] = False
+        st.session_state["_pending_clear_report_edit_drafts"] = True
+
+
 def _saved_reports_table_rows(items: list[dict[str, Any]]) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for item in items:
         rows.append(
             {
-                "Report ID": str(item.get("id", "-")),
                 "Title": str(item.get("report_title", "-")),
                 "Experiment": str(item.get("experiment_name", "-")),
                 "Metric": str(item.get("metric_key", "-")),
-                "Model": str(item.get("model", "-")),
                 "Created At": format_display_datetime(item.get("created_at")),
+                "Updated At": format_display_datetime(
+                    item.get("updated_at") or item.get("created_at")
+                ),
             }
         )
     return rows
+
+
+def _report_option_label(item: dict[str, Any]) -> str:
+    title = str(item.get("report_title") or "(제목 없음)")
+    created = format_display_datetime(item.get("created_at"))
+    experiment = str(item.get("experiment_name") or "-")
+    short_id = str(item.get("id", ""))[:8]
+    return f"{title} · {experiment} · {created} · {short_id}"
 
 
 def _render_saved_reports_panel(
@@ -293,6 +381,47 @@ def _render_saved_reports_panel(
         return
 
     st.dataframe(_saved_reports_table_rows(items), use_container_width=True, hide_index=True)
+
+    option_labels = [_report_option_label(item) for item in items]
+    label_to_id = {
+        label: str(item.get("id", ""))
+        for label, item in zip(option_labels, items)
+        if item.get("id")
+    }
+    selected_label = st.selectbox(
+        "보고서 선택",
+        options=option_labels,
+        key=f"{panel_key}_selected_report",
+    )
+    load_clicked = st.button(
+        "선택한 보고서 보기",
+        key=f"{panel_key}_load_report",
+        use_container_width=True,
+    )
+    delete_clicked = st.button(
+        "보고서 삭제하기",
+        key=f"{panel_key}_delete_report",
+        use_container_width=True,
+    )
+    if load_clicked:
+        report_id = label_to_id.get(selected_label, "")
+        if not report_id:
+            st.warning("불러올 보고서를 선택해주세요.")
+            return
+        body = _fetch_saved_report(report_id)
+        if body is not None:
+            _apply_report_from_body(body, source="loaded")
+            st.success("저장된 보고서를 불러왔습니다.")
+    if delete_clicked:
+        report_id = label_to_id.get(selected_label, "")
+        if not report_id:
+            st.warning("삭제할 보고서를 선택해주세요.")
+            return
+        if _delete_saved_report(report_id):
+            _clear_main_report_if_matching(report_id)
+            st.session_state.pop(cache_key, None)
+            st.success("보고서를 삭제했습니다.")
+            st.rerun()
 
 
 def _generate_report(exp: str, metric: str, selected_top_k: Any) -> None:
@@ -337,7 +466,7 @@ def _generate_report(exp: str, metric: str, selected_top_k: Any) -> None:
         return
 
     body = report_response.json()
-    _apply_report_from_body(body, experiment_name=exp, metric_key=metric)
+    _apply_report_from_body(body, experiment_name=exp, metric_key=metric, source="generated")
 
 
 def _render_chat_bubble(role: str, content: str) -> None:
@@ -345,6 +474,162 @@ def _render_chat_bubble(role: str, content: str) -> None:
         st.markdown(content)
     else:
         st.write(content)
+
+
+def _build_chat_history() -> list[dict[str, str]]:
+    """현재 질문 제외·인사말 제외한 직전 메시지 중 최근 N개."""
+    prior = st.session_state["chat_messages"][:-1]
+    history: list[dict[str, str]] = []
+    for msg in prior:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        if role == "assistant" and content == CHAT_WELCOME_MESSAGE:
+            continue
+        if role in ("user", "assistant") and content:
+            history.append({"role": role, "content": content})
+    return history[-CHAT_HISTORY_LIMIT:]
+
+
+def _reset_chat_to_new() -> None:
+    st.session_state["chat_session_id"] = None
+    st.session_state["chat_resolved_context"] = {}
+    st.session_state["chat_messages"] = [
+        {"role": "assistant", "content": CHAT_WELCOME_MESSAGE}
+    ]
+
+
+def _context_from_metadata(meta: dict[str, Any] | None) -> dict[str, Any]:
+    """assistant metadata에서 UI 표시용 후처리 문맥만 추출."""
+    if not isinstance(meta, dict):
+        return {}
+    ctx: dict[str, Any] = {}
+    if meta.get("experiment_name"):
+        ctx["experiment_name"] = str(meta["experiment_name"])
+    if meta.get("metric_key"):
+        ctx["metric_key"] = str(meta["metric_key"])
+    if meta.get("top_k") is not None and meta.get("top_k") != "":
+        ctx["top_k"] = meta["top_k"]
+    if meta.get("ascending") is not None:
+        ctx["ascending"] = bool(meta["ascending"])
+    return ctx
+
+
+def _set_chat_resolved_context_from_items(items: list[dict[str, Any]]) -> None:
+    """메시지 목록에서 가장 최근 assistant metadata 문맥을 복원."""
+    for item in reversed(items):
+        if item.get("role") != "assistant":
+            continue
+        ctx = _context_from_metadata(item.get("metadata") or {})
+        if ctx:
+            st.session_state["chat_resolved_context"] = ctx
+            return
+    st.session_state["chat_resolved_context"] = {}
+
+
+def _format_chat_context_caption(
+    *,
+    sidebar_experiment: str,
+    sidebar_metric: str,
+    report_title: str,
+) -> str:
+    resolved = st.session_state.get("chat_resolved_context") or {}
+    exp = resolved.get("experiment_name") or (
+        sidebar_experiment if sidebar_experiment and sidebar_experiment != DIRECT_INPUT_LABEL else None
+    )
+    metric = resolved.get("metric_key") or (
+        sidebar_metric if sidebar_metric and sidebar_metric != NO_SELECTION_LABEL else None
+    )
+    top_k = resolved.get("top_k")
+    report = report_title or None
+
+    parts = [
+        f"experiment `{exp or '-'}`",
+        f"metric `{metric or '-'}`",
+    ]
+    if top_k is not None:
+        parts.append(f"top_k `{top_k}`")
+    parts.append(f"report `{report or '-'}`")
+    return "현재 참조 문맥: " + " · ".join(parts)
+
+
+def _on_new_chat_click() -> None:
+    """dialog 유지: st.rerun() 없이 세션만 초기화."""
+    _reset_chat_to_new()
+    st.session_state["chat_session_select"] = "(현재 대화)"
+
+
+def _delete_chat_session(session_id: str) -> bool:
+    response = _safe_request("DELETE", f"/chat/sessions/{session_id}", timeout=10)
+    if response is None:
+        return False
+    if response.status_code not in (200, 204):
+        st.error(f"대화 삭제 실패 ({response.status_code})")
+        st.code(response.text)
+        return False
+    return True
+
+
+def _on_delete_chat_session_click() -> None:
+    """선택된(또는 현재) 세션 hard delete 후 새 대화로 초기화."""
+    label = st.session_state.get("chat_session_select")
+    mapping = st.session_state.get("_chat_session_label_map") or {}
+    target_id = mapping.get(label) if label else None
+    if not target_id:
+        target_id = st.session_state.get("chat_session_id")
+    if not target_id:
+        st.session_state["_chat_delete_notice"] = "삭제할 저장된 대화가 없습니다."
+        return
+    if _delete_chat_session(str(target_id)):
+        _reset_chat_to_new()
+        st.session_state["chat_session_select"] = "(현재 대화)"
+        st.session_state["_chat_delete_notice"] = "대화를 삭제했습니다."
+
+
+def _on_chat_session_select() -> None:
+    """목록 변경 시 이력 로드. '(현재 대화)'는 새 대화와 동일하게 초기화."""
+    label = st.session_state.get("chat_session_select")
+    if not label or label == "(현재 대화)":
+        _reset_chat_to_new()
+        return
+    mapping = st.session_state.get("_chat_session_label_map") or {}
+    target_id = mapping.get(label)
+    current_sid = str(st.session_state.get("chat_session_id") or "")
+    if target_id and target_id != current_sid:
+        _load_chat_session(target_id)
+
+
+def _fetch_chat_sessions(limit: int = 20) -> list[dict[str, Any]]:
+    response = _safe_request("GET", "/chat/sessions", params={"limit": limit}, timeout=10)
+    if response is None or response.status_code != 200:
+        return []
+    return list(response.json().get("items") or [])
+
+
+def _load_chat_session(session_id: str) -> bool:
+    response = _safe_request(
+        "GET",
+        f"/chat/sessions/{session_id}/messages",
+        timeout=10,
+    )
+    if response is None:
+        return False
+    if response.status_code != 200:
+        st.error(f"대화 이력 조회 실패 ({response.status_code})")
+        st.code(response.text)
+        return False
+    items = response.json().get("items") or []
+    messages: list[dict[str, str]] = []
+    for item in items:
+        role = item.get("role", "")
+        content = item.get("content", "")
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": content})
+    if not messages:
+        messages = [{"role": "assistant", "content": CHAT_WELCOME_MESSAGE}]
+    st.session_state["chat_session_id"] = session_id
+    st.session_state["chat_messages"] = messages
+    _set_chat_resolved_context_from_items(items)
+    return True
 
 
 def _append_and_answer_chat(
@@ -356,7 +641,14 @@ def _append_and_answer_chat(
     with st.chat_message("user"):
         st.write(user_prompt)
 
-    chat_payload: dict[str, Any] = {"message": user_prompt}
+    chat_payload: dict[str, Any] = {
+        "message": user_prompt,
+        "history": _build_chat_history(),
+    }
+    session_id = st.session_state.get("chat_session_id")
+    if session_id:
+        chat_payload["session_id"] = session_id
+
     report_text = st.session_state.get("generated_report_text", "")
     report_meta = st.session_state.get("generated_report_meta", {})
     if report_text:
@@ -370,7 +662,7 @@ def _append_and_answer_chat(
     elif current_metric and current_metric != NO_SELECTION_LABEL:
         chat_payload["metric_key"] = current_metric
 
-    chat_response = _safe_request("POST", "/chat/ask", json=chat_payload, timeout=30)
+    chat_response = _safe_request("POST", "/chat/ask", json=chat_payload, timeout=120)
     if chat_response is None:
         answer = "챗봇 요청 실패: 백엔드 요청에 실패했습니다."
         intent = "-"
@@ -378,6 +670,14 @@ def _append_and_answer_chat(
         data = chat_response.json()
         answer = data.get("answer", "응답이 비어 있습니다.")
         intent = data.get("intent", "-")
+        returned_session_id = data.get("session_id")
+        if returned_session_id:
+            st.session_state["chat_session_id"] = returned_session_id
+        resolved = _context_from_metadata(data.get("metadata") or {})
+        if resolved:
+            prev = dict(st.session_state.get("chat_resolved_context") or {})
+            prev.update(resolved)
+            st.session_state["chat_resolved_context"] = prev
     else:
         answer = f"챗봇 응답 실패 ({chat_response.status_code})"
         intent = "-"
@@ -385,6 +685,17 @@ def _append_and_answer_chat(
     st.session_state["chat_messages"].append({"role": "assistant", "content": answer})
     with st.chat_message("assistant"):
         st.caption(f"intent: {intent}")
+        resolved = st.session_state.get("chat_resolved_context") or {}
+        if resolved:
+            bits: list[str] = []
+            if resolved.get("experiment_name"):
+                bits.append(f"experiment `{resolved['experiment_name']}`")
+            if resolved.get("metric_key"):
+                bits.append(f"metric `{resolved['metric_key']}`")
+            if resolved.get("top_k") is not None:
+                bits.append(f"top_k `{resolved['top_k']}`")
+            if bits:
+                st.caption("후처리 문맥: " + " · ".join(bits))
         _render_chat_bubble("assistant", answer)
 
 
@@ -424,18 +735,79 @@ def show_experiment_info_dialog(exp_name: str) -> None:
         st.caption("등록된 태그가 없습니다.")
 
 
-@st.dialog("실험 Q&A 챗봇", width="small")
+@st.dialog("실험 Q&A 챗봇", width="large")
 def show_chat_dialog() -> None:
     current_experiment = (st.session_state.get("selected_experiment") or "").strip()
     current_metric = (st.session_state.get("selected_metric") or "").strip()
     current_report_title = (st.session_state.get("generated_report_title") or "").strip()
-    exp_label = current_experiment if current_experiment else "-"
-    metric_label = current_metric if current_metric and current_metric != NO_SELECTION_LABEL else "-"
-    report_label = current_report_title if current_report_title else "-"
     st.caption(
-        f"현재 참조 문맥: experiment `{exp_label}` · metric `{metric_label}` · "
-        f"report `{report_label}`"
+        _format_chat_context_caption(
+            sidebar_experiment=current_experiment,
+            sidebar_metric=current_metric,
+            report_title=current_report_title,
+        )
     )
+
+    sessions = _fetch_chat_sessions(limit=20)
+    session_labels = ["(현재 대화)"]
+    label_to_session_id: dict[str, str] = {}
+    for item in sessions:
+        sid = str(item.get("session_id") or "")
+        title = (item.get("title") or "제목 없음").strip() or "제목 없음"
+        updated = str(item.get("updated_at") or "")[:19].replace("T", " ")
+        label = f"{title} · {updated}" if updated else title
+        if label in label_to_session_id:
+            label = f"{label} ({sid[:8]})"
+        session_labels.append(label)
+        label_to_session_id[label] = sid
+
+    st.session_state["_chat_session_label_map"] = label_to_session_id
+
+    current_sid = str(st.session_state.get("chat_session_id") or "")
+    default_index = 0
+    if current_sid:
+        for idx, label in enumerate(session_labels):
+            if label_to_session_id.get(label) == current_sid:
+                default_index = idx
+                break
+
+    if "chat_session_select" not in st.session_state:
+        st.session_state["chat_session_select"] = session_labels[default_index]
+    elif st.session_state["chat_session_select"] not in session_labels:
+        st.session_state["chat_session_select"] = session_labels[default_index]
+
+    col_sel, col_new, col_del = st.columns([3, 1, 1])
+    with col_sel:
+        st.selectbox(
+            "대화 목록",
+            session_labels,
+            key="chat_session_select",
+            on_change=_on_chat_session_select,
+        )
+    with col_new:
+        st.write("")
+        st.button(
+            "새 대화",
+            key="chat_session_new",
+            use_container_width=True,
+            on_click=_on_new_chat_click,
+        )
+    with col_del:
+        st.write("")
+        st.button(
+            "이 대화 삭제",
+            key="chat_session_delete",
+            use_container_width=True,
+            on_click=_on_delete_chat_session_click,
+            disabled=(
+                st.session_state.get("chat_session_select") == "(현재 대화)"
+                and not st.session_state.get("chat_session_id")
+            ),
+        )
+
+    notice = st.session_state.pop("_chat_delete_notice", None)
+    if notice:
+        st.caption(notice)
 
     for message in st.session_state["chat_messages"]:
         with st.chat_message(message["role"]):
@@ -574,27 +946,108 @@ else:
 
 # =========================================================================
 # Main Screen - Report 화면 (Runs 정보 아래)
+# 목록/선택은 사이드바 "실행" 영역만. 메인은 생성·불러오기 결과 본문만 표시.
 # =========================================================================
 st.divider()
 st.subheader("보고서")
 
-with st.expander("저장된 보고서 목록", expanded=True):
-    _render_saved_reports_panel(
-        experiment_name=(st.session_state.get("selected_experiment") or "").strip(),
-        panel_key="main",
-    )
-
 report_text = st.session_state.get("generated_report_text", "")
 report_meta = st.session_state.get("generated_report_meta", {})
 if not report_text:
-    st.caption("좌측 사이드바에서 **보고서 생성하기** 를 눌러 보고서를 생성하세요.")
-else:
-    st.success("보고서를 생성했습니다.")
     st.caption(
-        f"모델: `{report_meta.get('model', '-')}` · "
-        f"비교 run 목록: {report_meta.get('metadata', {})}"
+        "좌측 사이드바에서 **보고서 생성하기** 또는 "
+        "**선택한 보고서 보기** 를 사용하세요."
     )
-    st.markdown(report_text)
+else:
+    # edit widget key는 위젯 생성 전에만 정리 가능
+    if (
+        st.session_state.pop("_pending_clear_report_edit_drafts", False)
+        or not st.session_state.get("report_edit_mode")
+    ):
+        st.session_state.pop("report_edit_draft", None)
+        st.session_state.pop("report_edit_title_draft", None)
+
+    source = report_meta.get("source", "generated")
+    if source == "loaded":
+        st.info("저장된 보고서를 불러왔습니다.")
+    elif source == "edited":
+        st.success("보고서 수정을 저장했습니다.")
+    else:
+        st.success("보고서를 생성했습니다.")
+
+    created_at = report_meta.get("created_at") or ""
+    updated_at = report_meta.get("updated_at") or created_at
+    created_label = format_display_datetime(created_at) if created_at else "-"
+    updated_label = format_display_datetime(updated_at) if updated_at else "-"
+    report_id = str(report_meta.get("id") or "")
+
+    meta_col, edit_col = st.columns([5, 1])
+    with meta_col:
+        st.caption(
+            f"제목: `{st.session_state.get('generated_report_title') or '-'}` · "
+            f"모델: `{report_meta.get('model', '-')}` · "
+            f"생성: `{created_label}` · "
+            f"수정: `{updated_label}` · "
+            f"비교 run 목록: {report_meta.get('metadata', {})}"
+        )
+    with edit_col:
+        if report_id and not st.session_state.get("report_edit_mode"):
+            if st.button("수정하기", key="report_edit_btn", use_container_width=True):
+                st.session_state["report_edit_mode"] = True
+                st.session_state["report_edit_draft"] = report_text
+                st.session_state["report_edit_title_draft"] = (
+                    st.session_state.get("generated_report_title") or ""
+                )
+                st.rerun()
+
+    if st.session_state.get("report_edit_mode"):
+        if not report_id:
+            st.warning("저장되지 않은 보고서라 수정할 수 없습니다.")
+            st.session_state["report_edit_mode"] = False
+        else:
+            st.text_input(
+                "보고서 제목",
+                key="report_edit_title_draft",
+            )
+            st.text_area(
+                "보고서 내용",
+                key="report_edit_draft",
+                height=420,
+            )
+            save_col, cancel_col = st.columns(2)
+            with save_col:
+                save_clicked = st.button(
+                    "저장",
+                    key="report_edit_save",
+                    use_container_width=True,
+                    type="primary",
+                )
+            with cancel_col:
+                cancel_clicked = st.button(
+                    "취소",
+                    key="report_edit_cancel",
+                    use_container_width=True,
+                )
+            if cancel_clicked:
+                st.session_state["report_edit_mode"] = False
+                st.session_state["_pending_clear_report_edit_drafts"] = True
+                st.rerun()
+            if save_clicked:
+                draft = (st.session_state.get("report_edit_draft") or "").strip()
+                title_draft = (st.session_state.get("report_edit_title_draft") or "").strip()
+                if not draft:
+                    st.warning("보고서 내용이 비어 있습니다.")
+                else:
+                    body = _update_saved_report(
+                        report_id,
+                        report=draft,
+                        report_title=title_draft or None,
+                    )
+                    if body is not None:
+                        _apply_report_from_body(body, source="edited")
+                        st.rerun()
+    else:
+        st.markdown(report_text)
 
 
 # =========================================================================

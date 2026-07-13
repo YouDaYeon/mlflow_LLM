@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_USER: mlflow_llm
       POSTGRES_PASSWORD: mlflow_llm
-      POSTGRES_DB: reports
+      POSTGRES_DB: mlflow_llm
     volumes:
       - ./db-data/:/var/lib/postgresql
     ports:
@@ -28,7 +28,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     environment:
-      DATABASE_URL: postgresql+psycopg://mlflow_llm:mlflow_llm@postgres:5432/reports
+      DATABASE_URL: postgresql+psycopg://mlflow_llm:mlflow_llm@postgres:5432/mlflow_llm
       MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://127.0.0.1:2522}
 
       CHAT_BASE_URL: ${CHAT_BASE_URL:-http://127.0.0.1:9978}

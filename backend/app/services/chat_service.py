@@ -8,7 +8,7 @@ from agents import Agent, MultiProvider, Runner, RunConfig
 from agents.mcp import MCPServerManager
 
 from backend.app.config import settings
-from backend.app.schemas import ExpDisplayRow, RunDisplayRow
+from backend.app.schemas import ChatMessage, ExpDisplayRow, RunDisplayRow
 from backend.app.services.mlflow_service import (
     list_experiment_names,
     list_recent_experiment_names,
@@ -74,7 +74,8 @@ INTENT_PARSING_PROMPT = (
     "3. 인자가 없으면 빈 객체 {} 를 반환한다.\n"
     "4. 자연어 조사, 조사 변형, 조사 제거 후 핵심 값만 추출한다.\n"
     "5. 실험 이름은 사용자가 말한 그대로 유지한다.\n"
-    "6. 추론하지 말고 명시된 정보만 추출한다.\n"
+    "6. 현재 질문에 인자가 없어도, 이전 대화에 명시된 experiment_name/metric_key/top_k/"
+    "ascending이 있으면 arguments에 채운다. 이전 대화에도 없으면 추론하지 않는다.\n"
     "7. 절대 설명하지 말고 JSON만 출력한다.\n\n"
 
     "=== 예시 ===\n"
@@ -96,6 +97,9 @@ INTENT_PARSING_PROMPT = (
 
     "사용자: 보고서 기반으로 다음 실험을 제안해줘\n"
     "{\"intent\":\"report_qa\",\"arguments\":{}}\n\n"
+
+    "이전 대화에 실험명 yolo26_gaze가 있고 현재 질문만 'metric key 알려줘'인 경우:\n"
+    "{\"intent\":\"list_metric_keys\",\"arguments\":{\"experiment_name\":\"yolo26_gaze\"}}\n"
 )
 
 SEARCH_RUNS_FILTER_PARSING_PROMPT = (
@@ -151,7 +155,9 @@ REPORT_QA_SYSTEM_PROMPT = (
     "3) 사용자가 '핵심 결론', '요약', '한눈에', '정리' 등을 요청하면 "
     "리포트의 핵심 결론을 3~5줄로 요약해 답한다.\n"
     "4) 요약 시에는 핵심 성능 결과, 주요 차이/원인, 다음 액션(튜닝 제안)을 우선 포함한다.\n"
-    "5) 불필요한 장문 설명은 피하고 한국어로 간결하게 답한다."
+    "5) 이전 대화가 있으면 후속 질문의 지시어(그거/약점도/다시 등)를 맥락에 맞게 해석하되, "
+    "여전히 report_text만 근거로 답한다.\n"
+    "6) 불필요한 장문 설명은 피하고 한국어로 간결하게 답한다."
 )
 
 
@@ -159,17 +165,110 @@ def _client() -> OpenAI:
     return OpenAI(base_url=settings.chat_base_url, api_key=settings.chat_api_key)
     # return OpenAI(base_url=settings.llama_base_url, api_key=settings.llama_api_key)
 
-def classify_intent(message: str) -> Tuple[str, Dict[str, Any]]:
+
+def generate_session_title(user_message: str, assistant_answer: str | None = None) -> str:
+    """첫 턴 기준 짧은 세션 제목을 LLM으로 생성. 실패 시 메시지 truncate."""
+    fallback = (user_message or "").strip().replace("\n", " ")
+    if len(fallback) > 80:
+        fallback = fallback[:80].rstrip() + "…"
+    fallback = fallback or "새 대화"
+
+    snippet = (assistant_answer or "").strip().replace("\n", " ")
+    if len(snippet) > 200:
+        snippet = snippet[:200].rstrip() + "…"
+
+    try:
+        completion = _client().chat.completions.create(
+            model=settings.chat_model,
+            temperature=0,
+            max_tokens=40,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "대화 세션 제목을 한 줄로 만들어라. "
+                        "한국어 명사구 위주, 최대 20자, 따옴표/설명 없이 제목만 출력."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"사용자: {user_message.strip()}\n"
+                        f"답변 요약: {snippet or '(없음)'}"
+                    ),
+                },
+            ],
+        )
+        title = (completion.choices[0].message.content or "").strip()
+        title = title.strip(" \"'`")
+        if title:
+            return title[:80]
+    except Exception:
+        pass
+    return fallback
+
+
+def _format_history_for_intent(
+    history: list[ChatMessage] | None,
+    *,
+    max_assistant_chars: int = 400,
+) -> str:
+    """intent 분류용으로 이전 대화를 짧게 직렬화한다. 비어 있으면 빈 문자열."""
+    if not history:
+        return ""
+    lines: list[str] = []
+    for msg in history:
+        role = (msg.role or "").strip().lower()
+        content = (msg.content or "").strip()
+        if role not in ("user", "assistant") or not content:
+            continue
+        if role == "assistant" and len(content) > max_assistant_chars:
+            content = content[:max_assistant_chars].rstrip() + "…"
+        lines.append(f"{role}: {content}")
+    return "\n".join(lines)
+
+
+def _build_intent_user_content(message: str, history: list[ChatMessage] | None) -> str:
+    history_text = _format_history_for_intent(history)
+    if not history_text:
+        return message
+    return (
+        "이전 대화(참고용):\n"
+        f"{history_text}\n\n"
+        "현재 질문:\n"
+        f"{message}"
+    )
+
+
+def _history_to_openai_messages(
+    history: list[ChatMessage] | None,
+) -> list[dict[str, str]]:
+    """ChatMessage 이력을 OpenAI chat messages 형식의 user/assistant 턴으로 변환."""
+    messages: list[dict[str, str]] = []
+    if not history:
+        return messages
+    for msg in history:
+        role = (msg.role or "").strip().lower()
+        content = (msg.content or "").strip()
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": content})
+    return messages
+
+
+def classify_intent(
+    message: str,
+    history: list[ChatMessage] | None = None,
+) -> Tuple[str, Dict[str, Any]]:
     # hinted = _heuristic_intent(message)
     # if hinted is not None:
     #     return hinted
 
     completion = _client().chat.completions.create(
-        model=settings.llama_model,
+        model=settings.chat_model,
         temperature=0,
         messages=[
             {"role": "system", "content": INTENT_PARSING_PROMPT},
-            {"role": "user", "content": message},
+            {"role": "user", "content": _build_intent_user_content(message, history)},
         ],
     )
     raw = (completion.choices[0].message.content or "").strip()
@@ -189,10 +288,12 @@ def classify_intent(message: str) -> Tuple[str, Dict[str, Any]]:
 
     return intent, arguments
 
+
 def _format_preview_list(items: list[str], limit: int) -> tuple[str, str]:
     preview = "\n".join(f"- {item}" for item in items[:limit])
     suffix = f"\n(너무 길어 {limit}개만 표시)" if len(items) > limit else ""
     return preview, suffix
+
 
 def _format_run_display_markdown(experiment_name: str, total: int, rows: list[RunDisplayRow]) -> str:
     """챗봇 답변용 마크다운 표(Parameters 열은 생략, 상세는 metadata.run_display_rows)."""
@@ -280,7 +381,7 @@ def _parse_search_runs_query(message: str) -> dict[str, object]:
         return _empty_search_runs_filters()
 
     completion = _client().chat.completions.create(
-        model=settings.llama_model,
+        model=settings.chat_model,
         temperature=0,
         messages=[
             {"role": "system", "content": SEARCH_RUNS_FILTER_PARSING_PROMPT},
@@ -518,24 +619,30 @@ def answer_report_question(
     report_text: str | None,
     experiment_name: str | None,
     metric_key: str | None,
+    history: list[ChatMessage] | None = None,
 ) -> tuple[str, str, dict]:
-
     if not report_text:
         return "생성된 report_text가 없어 리포트 질문에 답할 수 없습니다.", intent, {}
 
-    payload = {
-        "question": message,
+    report_context = {
         "report_text": report_text,
         "experiment_name": experiment_name,
         "metric_key": metric_key,
     }
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": REPORT_QA_SYSTEM_PROMPT},
+        {
+            "role": "system",
+            "content": "리포트 컨텍스트(JSON):\n"
+            + json.dumps(report_context, ensure_ascii=False),
+        },
+        *_history_to_openai_messages(history),
+        {"role": "user", "content": message},
+    ]
     completion = _client().chat.completions.create(
-        model=settings.llama_model,
-        temperature=settings.llama_temperature,
-        messages=[
-            {"role": "system", "content": REPORT_QA_SYSTEM_PROMPT},
-            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-        ],
+        model=settings.chat_model,
+        temperature=settings.chat_temperature,
+        messages=messages,
     )
     answer = (completion.choices[0].message.content or "").strip()
     return answer, intent, {"experiment_name": experiment_name, "metric_key": metric_key}
@@ -543,6 +650,7 @@ def answer_report_question(
 
 async def run_with_mcp(
     message: str,
+    history: list[ChatMessage] | None = None,
 ) -> tuple[str, str, dict]:
     server = create_mlflow_mcp_server()
     async with MCPServerManager([server], strict=False) as manager:
@@ -559,19 +667,24 @@ async def run_with_mcp(
             name="MCP Helper",
             instructions=(
                 "제공된 MCP 도구를 사용해 사용자 질문에 답하세요.\n"
+                "이전 대화가 있으면 지시어·후속 질문을 맥락에 맞게 해석하세요.\n"
                 "도구 호출이 필요하면 적극적으로 사용하세요."
             ),
-            model=settings.llama_model,
+            model=settings.chat_model,
             mcp_servers=manager.active_servers,
         )
+        mcp_input: list[dict[str, str]] = [
+            *_history_to_openai_messages(history),
+            {"role": "user", "content": message},
+        ]
         result = await Runner.run(
             starting_agent=agent,
-            input=message,
+            input=mcp_input,
             run_config=RunConfig(
                 tracing_disabled=True,         # openapi 트레이싱 끔
                 model_provider=MultiProvider(
-                    openai_api_key=settings.llama_api_key,
-                    openai_base_url=settings.llama_base_url,
+                    openai_api_key=settings.chat_api_key,
+                    openai_base_url=settings.chat_base_url,
                     openai_use_responses=False,
                 ),
             ),

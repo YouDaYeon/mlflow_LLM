@@ -8,7 +8,7 @@ from backend.app.api.report_router import router as report_router
 from backend.app.db.init_db import init_db
 
 
-# uvicorn 기동 → reports 테이블 자동 생성 (없을 때만)
+# uvicorn 기동 → reports / chat_* 테이블 자동 생성 (없을 때만)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 애플리케이션이 시작되기 전 실행

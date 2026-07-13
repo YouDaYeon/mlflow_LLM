@@ -230,6 +230,7 @@ class ReportRequest(BaseModel):
 class ReportResponse(BaseModel):
     id: UUID
     created_at: datetime
+    updated_at: datetime | None = None
     experiment_name: str
     metric_key: str
     report: str
@@ -238,9 +239,15 @@ class ReportResponse(BaseModel):
     metadata: dict[str, Any]
 
 
+class ReportUpdateRequest(BaseModel):
+    report: str = Field(..., min_length=1)
+    report_title: str | None = None
+
+
 class ReportListItem(BaseModel):
     id: UUID
     created_at: datetime
+    updated_at: datetime | None = None
     experiment_name: str
     metric_key: str
     report_title: str
@@ -251,8 +258,14 @@ class ReportListResponse(BaseModel):
 
 
 # chat
+class ChatMessage(BaseModel):
+    role: str  # "user" | "assistant"
+    content: str
+
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1)
+    history: list[ChatMessage] = Field(default_factory=list)  # 직전 턴들 (session_id 없을 때 fallback)
+    session_id: UUID | None = None
     report_text: str | None = None
     experiment_name: str | None = None
     metric_key: str | None = None
@@ -261,6 +274,39 @@ class ChatResponse(BaseModel):
     answer: str
     intent: str
     metadata: dict[str, Any] = Field(default_factory=dict)
+    session_id: UUID
+
+
+class ChatSessionCreateResponse(BaseModel):
+    session_id: UUID
+    title: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChatSessionListItem(BaseModel):
+    session_id: UUID
+    title: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChatSessionListResponse(BaseModel):
+    items: list[ChatSessionListItem]
+
+
+class ChatMessageItem(BaseModel):
+    id: UUID
+    role: str
+    content: str
+    intent: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class ChatMessageListResponse(BaseModel):
+    session_id: UUID
+    items: list[ChatMessageItem]
 
 
 class McpHealthResponse(BaseModel):
