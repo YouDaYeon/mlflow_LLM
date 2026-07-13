@@ -39,6 +39,15 @@ MAX_RECENT_EXPERIMENTS = 5
 MAX_METRIC_KEYS_PREVIEW = 30
 MAX_FILTER_RUNS_PREVIEW = 20
 
+# Qwen 등 reasoning 모델이 붙이는 사고 과정 블록
+_THINK_BLOCK_RE = re.compile(r"<think>[\s\S]*?</think>", re.IGNORECASE)
+
+
+def strip_think_tags(text: str | None) -> str:
+    """LLM 응답에서 <think>...</think> 블록을 제거한다."""
+    cleaned = _THINK_BLOCK_RE.sub("", text or "")
+    return cleaned.strip()
+
 INTENT_PARSING_PROMPT = (
     "당신은 MLflow 실험 QA 시스템의 Query Parser이다.\n"
     "사용자 메시지를 분석하여 '의도(intent)'와 '필요한 인자(arguments)'를 추출하라.\n"
@@ -199,7 +208,7 @@ def generate_session_title(user_message: str, assistant_answer: str | None = Non
                 },
             ],
         )
-        title = (completion.choices[0].message.content or "").strip()
+        title = strip_think_tags(completion.choices[0].message.content or "")
         title = title.strip(" \"'`")
         if title:
             return title[:80]
@@ -271,7 +280,7 @@ def classify_intent(
             {"role": "user", "content": _build_intent_user_content(message, history)},
         ],
     )
-    raw = (completion.choices[0].message.content or "").strip()
+    raw = strip_think_tags(completion.choices[0].message.content or "")
 
     # gemma4 raw 형식: {"intent":"...", "arguments":{...}}
     # qwen3.6 raw 형식: '<think>\n\n</think>\n\n{"intent":"list_experiments","arguments":{}}'
@@ -388,7 +397,7 @@ def _parse_search_runs_query(message: str) -> dict[str, object]:
             {"role": "user", "content": msg},
         ],
     )
-    raw = (completion.choices[0].message.content or "").strip()
+    raw = strip_think_tags(completion.choices[0].message.content or "")
 
     return _parse_search_runs_filters_from_llm_raw(raw)
 
@@ -644,7 +653,7 @@ def answer_report_question(
         temperature=settings.chat_temperature,
         messages=messages,
     )
-    answer = (completion.choices[0].message.content or "").strip()
+    answer = strip_think_tags(completion.choices[0].message.content or "")
     return answer, intent, {"experiment_name": experiment_name, "metric_key": metric_key}
 
 
@@ -689,7 +698,7 @@ async def run_with_mcp(
                 ),
             ),
         )
-        answer = result.final_output
+        answer = strip_think_tags(result.final_output)
         tool_calls = extract_tool_calls(result)
         answer = f"Tool Calls: {tool_calls}\n\n {answer}"
 
