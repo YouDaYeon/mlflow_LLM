@@ -1,23 +1,39 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, ClassVar
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field
+
+DISPLAY_TZ = ZoneInfo("Asia/Seoul")
+
+
+def _to_display_timezone(dt: datetime) -> datetime:
+    """UI 표시용으로 Asia/Seoul로 변환한다. naive는 UTC로 간주."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(DISPLAY_TZ)
 
 
 def split_run_start_time(started: object) -> tuple[str, str]:
     """MLflow start_time(ms) / ISO 문자열 등을 UI용 날짜·시각으로 나눈다."""
     if started is None:
         return "-", "-"
+    if isinstance(started, datetime):
+        try:
+            dt = _to_display_timezone(started)
+            return dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M:%S")
+        except (ValueError, OSError):
+            return "-", "-"
     if isinstance(started, (int, float)) and not isinstance(started, bool):
         ts = float(started)
         if ts > 1e12:
             ts /= 1000.0
         try:
-            dt = datetime.fromtimestamp(ts)
+            dt = datetime.fromtimestamp(ts, tz=DISPLAY_TZ)
             return dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M:%S")
         except (ValueError, OSError):
             return "-", "-"
@@ -28,19 +44,20 @@ def split_run_start_time(started: object) -> tuple[str, str]:
         ts = float(s)
         if ts > 1e12:
             ts /= 1000.0
-        dt = datetime.fromtimestamp(ts)
+        dt = datetime.fromtimestamp(ts, tz=DISPLAY_TZ)
         return dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M:%S")
     except ValueError:
         pass
     try:
         dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        dt = _to_display_timezone(dt)
         return dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M:%S")
     except ValueError:
         return s, "-"
 
 
 def format_display_datetime(value: object) -> str:
-    """UI 출력용 datetime 문자열(YYYY-MM-DD HH:MM:SS)로 정규화한다."""
+    """UI 출력용 datetime 문자열(YYYY-MM-DD HH:MM:SS, Asia/Seoul)로 정규화한다."""
     date_s, time_s = split_run_start_time(value)
     if date_s == "-" and time_s == "-":
         return "-"

@@ -1,301 +1,267 @@
 # 온보딩 가이드
 
-MLflow 실험 조회 → LLM 보고서 생성/저장 → Q&A 챗봇을 제공하는 프로젝트입니다.
+MLflow 실험 데이터를 조회하고, LLM으로 분석 보고서를 만들고, 멀티턴 Q&A 챗봇으로 후속 질문을 할 수 있는 프로젝트입니다.
 
-**스택:** FastAPI (backend) · Streamlit (frontend) · PostgreSQL · MLflow Tracking · OpenAI-compatible LLM
+이 문서만 읽어도 **전체 구조·데이터 흐름·핵심 기능**을 파악할 수 있도록 작성했습니다.  
+세부 실행은 `README.md`, 멀티턴 설계 메모는 `multi_trun.md`를 참고하세요.
 
 ---
 
-## 1. 프로젝트 구조
+## 1. 한눈에 보기
 
+```text
+[Streamlit UI]  frontend/app_2.py
+       │  HTTP (API_BASE_URL)
+       ▼
+[FastAPI]       backend/app/
+       ├── /mlflow/*   → 원격 MLflow Tracking Server
+       ├── /report/*   → LLM(보고서용) + PostgreSQL(reports)
+       └── /chat/*     → LLM(챗/의도분류) + MLflow/MCP + PostgreSQL(chat_*)
 ```
+
+| 구성 | 역할 | 기본 포트 |
+|------|------|-----------|
+| Frontend | Streamlit UI | `8501` |
+| Backend | FastAPI | Docker `8010` / 로컬 `8011` |
+| PostgreSQL | 보고서·채팅 이력 | 호스트 `5435` → 컨테이너 `5432` |
+| pgAdmin | DB GUI | `5050` |
+| MLflow Tracking | 실험/런 원본 데이터 | `.env`의 `MLFLOW_TRACKING_URI` |
+| LLM | 보고서 생성 / 챗·intent | `LLAMA_*` · `CHAT_*` |
+
+**역할 분리**
+
+- MLflow Tracking = 실험 원본 (이 프로젝트 DB에 런을 복제하지 않음)
+- PostgreSQL = 앱이 만든 **보고서** + **챗 세션/메시지**
+- `LLAMA_*` ≈ 보고서 생성, `CHAT_*` ≈ intent 분류·report Q&A 등 챗 경로
+
+---
+
+## 2. 디렉터리 구조
+
+```text
 mlflow_LLM_dy/
-├── backend/app/          # FastAPI
-│   ├── main.py           # 앱 진입점, DB init, 라우터 마운트
-│   ├── config.py         # .env 설정
-│   ├── schemas.py        # 요청/응답 모델
-│   ├── api/              # mlflow / report / chat 라우터
-│   ├── services/         # 비즈니스 로직
-│   └── db/               # SQLAlchemy 모델·세션
+├── backend/app/
+│   ├── main.py              # FastAPI 진입, 기동 시 init_db()
+│   ├── config.py            # Settings (.env)
+│   ├── schemas.py           # 요청/응답 모델
+│   ├── api/                 # mlflow_router, report_router, chat_router
+│   ├── services/            # mlflow / report / chat / repository
+│   └── db/                  # models, session, init_db
 ├── frontend/
-│   ├── app_2.py          # 메인 UI (Docker·run.sh 기준)
-│   └── app.py            # 구버전 UI
-├── mlflow/               # 더미 실험 헬퍼
-├── docker-compose.yml    # postgres, pgadmin, backend, frontend
-├── run.sh                # 로컬 실행 참고
-└── .env                  # MLFLOW / DB / LLM / API 설정
+│   ├── app_2.py             # ★ 메인 UI
+│   └── app.py               # 구버전 (참고용)
+├── docker-compose.yml
+├── run.sh                   # 로컬 실행 메모
+├── .env / .env.example
+├── README.md
+└── multi_trun.md            # 멀티턴·세션 영속화 상세 메모
 ```
 
-| 진입점 | 설명 |
+**코드를 볼 때 우선순위**
+
+1. `frontend/app_2.py` — 사용자 시나리오 전부
+2. `backend/app/api/*_router.py` — API 경계
+3. `backend/app/services/*` — 실제 비즈니스 로직
+4. `backend/app/db/models.py` — 저장 스키마
+
+---
+
+## 3. 실행 방법
+
+### Docker (전체 스택)
+
+```bash
+cp .env .env   # 값 채우기
+docker compose up -d --build
+```
+
+- UI: `http://localhost:8501`
+- API health: `http://localhost:8010/health`
+- pgAdmin: `http://localhost:5050`
+
+### 로컬 개발 (DB만 Docker, 앱은 호스트)
+
+1. Postgres(+pgAdmin) 기동
+2. `.env`의 `DATABASE_URL`은 `127.0.0.1:5435/...` 사용  
+   `API_BASE_URL=http://localhost:8011` (프론트 → 로컬 백엔드)
+3. 백엔드 / 프론트:
+
+```bash
+conda activate mlflow310   # 또는 프로젝트 환경
+python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8011 --reload
+python -m streamlit run frontend/app_2.py
+```
+
+기동 시 `init_db()`가 테이블을 없으면 생성합니다 (`reports`, `chat_sessions`, `chat_messages`).
+
+---
+
+## 4. 핵심 기능과 흐름
+
+### 4.1 MLflow 실험 조회
+
+**목적:** Tracking Server의 실험/런/메트릭을 UI에 보여 준다.
+
+```text
+사이드바에서 실험·metric·top-k 선택
+  → GET /mlflow/names | /metric-keys | /top-runs | /experiment ...
+  → 메인에 runs 테이블 / 실험 정보 다이얼로그
+```
+
+| 계층 | 파일 |
+|------|------|
+| API | `api/mlflow_router.py` |
+| 로직 | `services/mlflow_service.py` |
+
+---
+
+### 4.2 보고서 생성 · 조회 · 수정 · 삭제
+
+**목적:** top runs(최대 3개)를 바탕으로 한국어 분석 보고서를 만들고 DB에 보관한다.
+
+```text
+[생성] POST /report/
+       → report_service (LLAMA_*) 로 본문 생성
+       → reports 테이블 저장
+       → 메인 화면에 표시
+
+[목록/보기] GET /report/ , GET /report/{id}
+[수정]      PATCH /report/{id}   (본문·제목, updated_at 갱신)
+[삭제]      DELETE /report/{id}
+```
+
+UI (`app_2.py`)
+
+- 사이드바: 생성, 저장된 보고서 목록·보기·삭제
+- 메인: 보고서 본문, **수정하기** (저장 시 수정 시각 반영)
+
+| 계층 | 파일 |
+|------|------|
+| API | `api/report_router.py` |
+| 로직 | `services/report_service.py`, `repository_service.py` |
+| 모델 | `db/models.py` → `Report` |
+
+---
+
+### 4.3 Q&A 챗봇 (멀티턴 + 세션 영속화)
+
+**목적:** 실험/보고서 맥락으로 질문하고, 대화를 이어가며 DB에 이력을 남긴다.
+
+#### 요청 한 번의 흐름 (`POST /chat/ask`)
+
+```text
+1. session_id 없으면 세션 생성 / 있으면 검증
+2. DB에서 최근 N턴 history 로드 (없으면 프론트 history fallback)
+3. classify_intent (CHAT_*, history 포함)
+4. intent 후처리
+   intent args → UI payload → 직전 assistant metadata
+   로 experiment_name / metric_key / top_k / ascending 보완
+5. 분기
+   · 실험 조회 intent → mlflow_service 직접 호출 (결정론적)
+   · report_qa        → 보고서 텍스트 + history 로 LLM 답변
+   · 그 외            → MLflow MCP agent
+6. user/assistant 메시지를 DB에 append
+7. 첫 턴이면 LLM으로 세션 title 생성
+8. ChatResponse(answer, intent, metadata, session_id)
+```
+
+#### UI에서의 세션
+
+- 대화 목록에서 불러오기 / `(현재 대화)`·**새 대화**로 초기화 / 삭제
+- 참조 문맥(caption): 사이드바·보고서 + intent 후처리된 experiment/metric/top_k
+- dialog 안에서는 `st.rerun()`을 쓰면 창이 닫히므로, 목록 전환은 `on_change`/`on_click`으로 state만 갱신
+
+| 계층 | 파일 |
+|------|------|
+| API | `api/chat_router.py` |
+| 로직 | `services/chat_service.py`, `repository_service.py`, `mlflow_service.py`(MCP) |
+| 모델 | `ChatSession`, `ChatMessageRow` |
+
+---
+
+## 5. 데이터 모델 (PostgreSQL)
+
+DB 이름 기본값: `mlflow_llm` (`POSTGRES_DB` / `DATABASE_URL` path).
+
+| 테이블 | 역할 |
 |--------|------|
-| `docker compose up` | 전체 스택 (backend `:8010`, frontend `:8501`, postgres `:5435`) |
-| `run.sh` | 로컬 uvicorn + Streamlit 참고 (backend 보통 `:8011`) |
-| `GET /health` | 백엔드 헬스체크 |
+| `reports` | 보고서 본문·제목·실험/metric·model·top_runs·metadata·created_at·**updated_at** |
+| `chat_sessions` | 대화 방 (title, created_at, updated_at) |
+| `chat_messages` | 턴 (role, content, intent, metadata, session FK CASCADE) |
+
+MLflow 런/메트릭은 **저장하지 않습니다.** 필요할 때마다 Tracking Server를 조회합니다.
 
 ---
 
-## 2. 구현된 기능
+## 6. API 맵 (요약)
 
-### 2.1 MLflow 조회
+### MLflow — `/mlflow`
 
-- Tracking URI의 실험/런/메트릭 조회
-- API: `GET /mlflow/names`, `/experiment`, `/runs`, `/top-runs`, `/metric-keys` 등
-- UI: 사이드바에서 실험·메트릭·top-k 선택 후 런 테이블 표시
+`names`, `experiment`, `runs`, `top-runs`, `metric-keys`, `mcp-health`, …
 
-### 2.2 보고서 생성·저장
+### Report — `/report`
 
-1. UI에서 top runs(최대 3개) 선택
-2. `POST /report/` → LLM이 한국어 분석 보고서 생성
-3. PostgreSQL `reports` 테이블에 저장
-4. UI에서 생성 결과 표시 + 저장된 보고서 목록 조회 (`GET /report/`)
-
-### 2.3 Q&A 챗봇 (멀티턴 + 세션 영속화)
-
-- API: `POST /chat/ask` (`message`, `history`, `session_id` optional + report/experiment 문맥)
-- 흐름:
-  1. `classify_intent`로 의도 분류 (history 반영)
-  2. 실험 조회 intent → MLflow 서비스 직접 호출
-  3. `report_qa` → 보고서 텍스트 + history 기반 LLM 답변
-  4. 그 외 → MLflow MCP agent fallback
-- DB: `chat_sessions` / `chat_messages`에 이력 저장, 목록에서 재개 가능 (Step 6)
-
-### 2.4 DB 연결
-
-| 항목 | 내용 |
-|------|------|
-| DB | PostgreSQL (`DATABASE_URL`, SQLAlchemy + psycopg) |
-| 용도 | 보고서 + **채팅 세션/메시지** (MLflow 런은 Tracking Server) |
-| 테이블 | `reports`, `chat_sessions`, `chat_messages` |
-| 초기화 | 앱 기동 시 `init_db()` → `create_all` |
-
-MLflow 데이터는 원격 Tracking Server(`MLFLOW_TRACKING_URI`)에 존재합니다.
-
-### 2.5 주요 설정 변수 (이름만)
-
-`MLFLOW_TRACKING_URI`, `DATABASE_URL`, `LLAMA_*`, `CHAT_*`, `API_BASE_URL`
-
----
-
-## 3. 추가 기능: 챗봇 멀티턴
-
-### 현황
-
-| 계층 | 상태 |
-|------|------|
-| Frontend | `history` 전송 + `chat_session_id` / 목록에서 이력 재개 |
-| Backend `/chat/ask` | `history`·`session_id` 수신, DB recent N턴 우선 |
-| DB | `chat_sessions` / `chat_messages` 저장 (Step 6 구현) |
-
-목표: 후속 질문이 이전 맥락을 이해하고, 저장·조회·재개가 가능하게 만들기.
-
-### 권장 접근 (진행 순서)
-
-**1~5단계:** 프론트 history → intent/LLM 멀티턴  
-**6단계:** DB 세션 영속화 (구현됨)  
-**선택(미구현):** report 연결, Alembic, URL 복원 등  
-**Step 6.6:** 실험 intent 후처리 · 세션 삭제 · LLM title (구현됨)
-
----
-
-### 구현 단계
-
-#### Step 1. 스키마 확장
-
-`backend/app/schemas.py`의 `ChatRequest`에 대화 이력 필드 추가.
-
-```python
-class ChatMessage(BaseModel):
-    role: str  # "user" | "assistant"
-    content: str
-
-class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1)
-    history: list[ChatMessage] = Field(default_factory=list)  # 직전 턴들
-    report_text: str | None = None
-    experiment_name: str | None = None
-    metric_key: str | None = None
-```
-
-- `history`에는 **현재 `message` 제외**한 이전 턴만 넣는 것을 권장 (중복 방지).
-- 토큰 한도를 위해 최근 N턴(예: 6~10)만 전송.
-
-#### Step 2. Frontend에서 history 전달
-
-`frontend/app_2.py`의 `_append_and_answer_chat` 수정:
-
-1. `st.session_state["chat_messages"]`에서 시스템 인사말 제외한 직전 메시지 추출
-2. 최근 6개만 슬라이스
-3. `chat_payload["history"]`에 `{role, content}` 리스트로 포함
-4. 기존처럼 `message`에 현재 질문만 유지
-
-#### Step 3. Backend 라우터에서 history 전달
-
-`chat_router.py` → 각 answer 함수에 `history` 인자 추가.
-
-- `classify_intent(message, history=...)`
-- `answer_report_question(..., history=...)`
-- `run_with_mcp(..., history=...)`
-- 실험 intent는 1차에서는 history 없이 유지해도 됨 (결정론적 조회)
-
-#### Step 4. Intent 분류에 맥락 반영
-
-`classify_intent` 프롬프트에 최근 대화를 짧게 포함.
-
-- 예: “이전 실험이 X였고, top_k=10을 봤다” → 후속 “metric key 알려줘”에서 `experiment_name` 추론
-- 출력 JSON 스키마는 기존 유지 (`intent` + args)
-- history가 비어 있으면 현재와 동일하게 동작하도록 fallback
-
-#### Step 5. LLM 답변 경로에 messages 배열 사용
-
-`report_qa` / MCP(또는 chat completion) 호출 시:
-
-```text
-system → (선택) history turns → user(current message)
-```
-
-- `report_text`는 system 또는 별도 context 메시지로 유지
-- MCP agent 경로: runner/input에 이전 턴을 이어 붙이거나, 단일 user 메시지에 “이전 대화 요약 + 현재 질문” 형태로 합치는 방식 중 택1
-  - **간단:** 요약/히스토리 텍스트를 현재 prompt에 concat
-  - **권장:** OpenAI messages 형식 그대로 전달
-
-#### Step 6. 세션 영속화 — PostgreSQL에 채팅 이력 저장·조회·재개
-
-같은 PostgreSQL(`DATABASE_URL`)에 `reports`와 별도 chat 테이블을 두고,
-대화 저장 → 목록 조회 → 선택 시 이력 복원 → 이어서 질문할 수 있게 한다.
-
-##### 6.1 목표 (구현 범위)
-
-| 동작 | 구현 |
-|------|------|
-| 채팅 시작 | `session_id` 없으면 `/chat/ask`에서 세션 자동 생성 → 응답·UI에 보관 |
-| 메시지 전송 | 응답 후 user/assistant를 DB에 append |
-| 세션 목록 | `GET /chat/sessions` → UI selectbox |
-| 이력 재개 | 목록에서 선택 시 `GET .../messages`로 로드 후 같은 세션으로 이어서 채팅 |
-| 새 대화 | UI에서 세션/메시지 state 초기화 (`session_id=null`로 다음 ask 시 새 세션) |
-
-##### 6.2 테이블 (구현)
-
-`backend/app/db/models.py` — `reports` 스키마는 변경하지 않음.
-
-**`chat_sessions`**
-
-| 컬럼 | 설명 |
-|------|------|
-| `id` | UUID PK (`session_id`) |
-| `title` | 목록용. 첫 user 메시지 truncate로 자동 설정 |
-| `created_at` / `updated_at` | 생성·마지막 메시지 시각 (`updated_at` 내림차순 목록) |
-
-**`chat_messages`** (`ChatMessageRow`, Pydantic `ChatMessage`와 이름 분리)
-
-| 컬럼 | 설명 |
-|------|------|
-| `id` | UUID PK |
-| `session_id` | FK → `chat_sessions.id` ON DELETE CASCADE |
-| `role` / `content` | `user` \| `assistant` |
-| `intent` | assistant 턴 분류 결과 (nullable) |
-| `metadata` | 응답 metadata JSONB |
-| `created_at` | 시간순 정렬 |
-
-- 인덱스: `(session_id, created_at)`
-- 기동 시 `init_db()` → `create_all` (모델 import 필수)
-
-##### 6.3 Repository
-
-`repository_service.py`에 구현:
-
-- `create_chat_session` / `get_chat_session` / `list_chat_sessions`
-- `append_chat_message` (메시지 insert + `updated_at`·title 갱신)
-- `list_chat_messages` / `get_recent_chat_history` (LLM용 최근 N턴)
-
-##### 6.4 API · 스키마
-
-| Method | Path | 역할 |
+| Method | Path | 설명 |
 |--------|------|------|
-| `POST` | `/chat/sessions` | 빈 세션 생성 |
-| `GET` | `/chat/sessions` | 목록 (`updated_at` desc) |
-| `GET` | `/chat/sessions/{session_id}/messages` | 메시지 전체 |
-| `POST` | `/chat/ask` | `session_id` optional + 응답에 `session_id` + DB append |
+| POST | `/` | 생성·저장 |
+| GET | `/` | 목록 |
+| GET | `/{id}` | 단건 |
+| PATCH | `/{id}` | 수정 |
+| DELETE | `/{id}` | 삭제 |
 
-`/chat/ask` 순서:
+### Chat — `/chat`
 
-```text
-1. session_id 없으면 create / 있으면 검증
-2. DB recent N턴 load (없으면 payload history fallback)
-3. classify → answer
-4. append user / assistant
-5. ChatResponse(..., session_id)
-```
+| Method | Path | 설명 |
+|--------|------|------|
+| POST | `/ask` | 질문 (세션·history·영속화) |
+| POST | `/sessions` | 빈 세션 생성 |
+| GET | `/sessions` | 세션 목록 |
+| GET | `/sessions/{id}/messages` | 메시지 목록 |
+| DELETE | `/sessions/{id}` | 세션 삭제 |
 
-- DB history가 있으면 **DB 우선**, 없으면 프론트 `history`
-- `CHAT_HISTORY_LIMIT` / `settings.chat_history_limit` (기본 6)
+---
 
-##### 6.5 Frontend (`app_2.py`)
+## 7. 설정 (`.env`)
 
-- `st.session_state["chat_session_id"]` + `chat_messages`
-- ask payload에 `session_id` 포함, 응답 `session_id` 저장
-- 챗봇 dialog: **저장된 대화** selectbox 선택 시 자동 로드 (`on_change`)
-- **새 대화** 버튼 (`on_click`)으로 state 초기화
-- dialog 유지: `st.rerun()` 사용하지 않음 (호출 시 dialog가 닫힘)
-
-##### 6.6 추가 기능 ✅ 구현됨
-
-| 항목 | 구현 |
+| 변수 | 의미 |
 |------|------|
-| 실험 intent 후처리 | intent args → payload → 직전 assistant `metadata` 순으로 `experiment_name` / `metric_key` / `top_k` / `ascending` 채움. 응답 metadata에도 기록해 다음 턴 복원 |
-| 세션 삭제 API | `DELETE /chat/sessions/{session_id}` hard delete (messages CASCADE). UI **삭제** 버튼 |
-| LLM 세션 title | 첫 턴 완료 후 `generate_session_title`로 짧은 제목 생성·저장 (실패 시 첫 질문 truncate) |
+| `MLFLOW_TRACKING_URI` | MLflow Tracking Server |
+| `DATABASE_URL` | PostgreSQL (로컬은 `:5435`, Docker backend는 `postgres:5432`) |
+| `LLAMA_*` | 보고서 생성 LLM |
+| `CHAT_*` | 챗/intent LLM (`CHAT_HISTORY_LIMIT` 포함) |
+| `API_BASE_URL` | 프론트가 호출할 백엔드 (Docker: `http://backend:8010`, 로컬: `http://localhost:8011`) |
+| `PGADMIN_*` | pgAdmin 로그인 |
 
-##### 6.7 검증
-
-| 시나리오 | 기대 |
-|----------|------|
-| 2턴 대화 후 DB | session 1 + messages 4 |
-| 목록에서 다른 대화 선택 | dialog 유지한 채 메시지 복원, 후속 질문 가능 |
-| `session_id` 없이 ask | 새 세션 + 응답에 `session_id` |
-| 새 대화 | 인사말로 리셋, 다음 질문이 새 세션 |
-
-**관련 파일:** `db/models.py`, `db/init_db.py`, `repository_service.py`, `schemas.py`, `api/chat_router.py`, `config.py` (`chat_history_limit`), `frontend/app_2.py`
-
-#### Step 7. 멀티턴 검증 시나리오
-
-| 시나리오 | 기대 |
-|----------|------|
-| “실험 목록 보여줘” → “첫 번째 실험 metric key 알려줘” | 이전 목록 맥락으로 experiment 추론 |
-| 보고서 생성 후 “강점만 다시 요약” → “약점도” | report_qa가 같은 report_text + history로 답변 |
-| history 없이 단일 질문 | 기존 싱글턴과 동일 |
-| 긴 대화 (N턴 초과) | 최근 N턴만 LLM에 사용, 응답 정상 |
-| (Step 6) 목록에서 이전 대화 재개 | UI·DB 이력 일치, 이어서 질문 가능 |
+모델 id는 LLM 서버의 `/v1/models` 실제 id와 맞춰야 합니다. `base_url`은 보통 `.../v1`까지 포함합니다.
 
 ---
 
-### 작업 순서 요약
+## 8. UI 화면 구성 (`app_2.py`)
 
-```
-1. ChatRequest에 history 추가
-2. app_2.py에서 최근 N턴 history 전송
-3. chat_router → chat_service로 history 전달
-4. classify_intent에 history 반영
-5. report_qa / MCP LLM 호출을 multi-message로 변경
-6. session DB 영속화 (구현됨)
-   - chat_sessions / chat_messages
-   - repository + /chat/sessions·messages + /ask session_id
-   - UI: 목록 선택 로드 / 새 대화 / dialog 유지
-7. Step 7 시나리오로 수동 테스트
-```
+| 영역 | 내용 |
+|------|------|
+| 사이드바 | 실험/metric/top-k 선택, 실험 정보, 보고서 생성, 저장 보고서 목록·보기·삭제 |
+| 메인 | runs 테이블, 보고서 본문(수정/수정시각) |
+| 플로팅 | QA 챗봇 dialog (세션 목록·멀티턴·참조 문맥) |
 
-### 건드릴 핵심 파일
-
-- `backend/app/schemas.py`
-- `backend/app/api/chat_router.py`
-- `backend/app/services/chat_service.py`
-- `frontend/app_2.py`
-- (Step 6) `backend/app/db/models.py`, `init_db.py`, `repository_service.py`, `config.py`
+프론트는 상태를 `st.session_state`에 두고, 영속 데이터는 전부 백엔드 API → PostgreSQL로 갑니다.
 
 ---
 
-## 4. 빠른 참고
+## 9. 새 기능 넣을 때
 
-- 메인 UI: `frontend/app_2.py`
-- 챗 진입: `POST /chat/ask` → `chat_service.py`
-- 보고서: `report_service.py` + `repository_service.py`
-- 실행: `README.md` / `docker-compose.yml`
+1. **API 계약**부터: `schemas.py` + 해당 `*_router.py`
+2. **로직**은 `services/` (가능하면 라우터는 얇게)
+3. **저장**이 필요하면 `db/models.py` + `repository_service.py` (+ `init_db` 컬럼 보강)
+4. **UI**는 `frontend/app_2.py`에서 해당 API 호출
+5. 챗 맥락이 필요하면 `/chat/ask`의 history·metadata·session 흐름을 먼저 따라가 보기
+
+---
+
+## 10. 관련 문서
+
+| 문서 | 내용 |
+|------|------|
+| `README.md` | 아키텍처 그림, Docker 실행, API 요약 |
+| `multi_trun.md` | 멀티턴·세션 영속화 구현 단계·검증 시나리오 |
+| `.env.example` | 환경변수 템플릿 |

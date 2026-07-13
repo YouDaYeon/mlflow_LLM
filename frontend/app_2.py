@@ -1,10 +1,41 @@
+import importlib
 import os
+from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import requests
 import streamlit as st
 
+from backend.app import schemas as _backend_schemas
+
+# Streamlit은 import를 캐시하므로 schemas 변경이 UI에 안 먹을 수 있음 → 매 실행 reload
+importlib.reload(_backend_schemas)
 from backend.app.schemas import RunDisplayRow, format_display_datetime
+
+_DISPLAY_TZ = ZoneInfo("Asia/Seoul")
+
+
+def _format_ui_datetime(value: object) -> str:
+    """UI 시각을 항상 Asia/Seoul로 표시 (Streamlit import 캐시 대비 로컬 보정)."""
+    if value is None or value == "":
+        return "-"
+    if isinstance(value, datetime):
+        dt = value
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(_DISPLAY_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    s = str(value).strip()
+    if not s:
+        return "-"
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(_DISPLAY_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        # MLflow epoch 등
+        return format_display_datetime(value)
 
 st.set_page_config(
     page_title="MLflow + FastAPI + Streamlit 템플릿",
@@ -328,8 +359,8 @@ def _saved_reports_table_rows(items: list[dict[str, Any]]) -> list[dict[str, str
                 "Title": str(item.get("report_title", "-")),
                 "Experiment": str(item.get("experiment_name", "-")),
                 "Metric": str(item.get("metric_key", "-")),
-                "Created At": format_display_datetime(item.get("created_at")),
-                "Updated At": format_display_datetime(
+                "Created At": _format_ui_datetime(item.get("created_at")),
+                "Updated At": _format_ui_datetime(
                     item.get("updated_at") or item.get("created_at")
                 ),
             }
@@ -339,7 +370,7 @@ def _saved_reports_table_rows(items: list[dict[str, Any]]) -> list[dict[str, str
 
 def _report_option_label(item: dict[str, Any]) -> str:
     title = str(item.get("report_title") or "(제목 없음)")
-    created = format_display_datetime(item.get("created_at"))
+    created = _format_ui_datetime(item.get("created_at"))
     experiment = str(item.get("experiment_name") or "-")
     short_id = str(item.get("id", ""))[:8]
     return f"{title} · {experiment} · {created} · {short_id}"
@@ -723,8 +754,8 @@ def show_experiment_info_dialog(exp_name: str) -> None:
     c3.metric("Lifecycle Stage", data.get("lifecycle_stage", "-"))
     st.subheader("Details")
     st.write(f"**Artifact Location**: `{data.get('artifact_location', '-')}`")
-    st.write(f"**Creation Time**: `{format_display_datetime(data.get('creation_time'))}`")
-    st.write(f"**Last Update Time**: `{format_display_datetime(data.get('last_update_time'))}`")
+    st.write(f"**Creation Time**: `{_format_ui_datetime(data.get('creation_time'))}`")
+    st.write(f"**Last Update Time**: `{_format_ui_datetime(data.get('last_update_time'))}`")
     st.write(f"**Trace Location**: `{data.get('trace_location', '-')}`")
     st.write(f"**Workspace**: `{data.get('workspace', '-')}`")
     st.subheader("Tags")
@@ -754,8 +785,8 @@ def show_chat_dialog() -> None:
     for item in sessions:
         sid = str(item.get("session_id") or "")
         title = (item.get("title") or "제목 없음").strip() or "제목 없음"
-        updated = str(item.get("updated_at") or "")[:19].replace("T", " ")
-        label = f"{title} · {updated}" if updated else title
+        updated = _format_ui_datetime(item.get("updated_at"))
+        label = f"{title} · {updated}" if updated and updated != "-" else title
         if label in label_to_session_id:
             label = f"{label} ({sid[:8]})"
         session_labels.append(label)
@@ -977,8 +1008,8 @@ else:
 
     created_at = report_meta.get("created_at") or ""
     updated_at = report_meta.get("updated_at") or created_at
-    created_label = format_display_datetime(created_at) if created_at else "-"
-    updated_label = format_display_datetime(updated_at) if updated_at else "-"
+    created_label = _format_ui_datetime(created_at) if created_at else "-"
+    updated_label = _format_ui_datetime(updated_at) if updated_at else "-"
     report_id = str(report_meta.get("id") or "")
 
     meta_col, edit_col = st.columns([5, 1])
