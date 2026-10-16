@@ -12,7 +12,11 @@ from backend.app.schemas import (
     ReportResponse,
     ReportUpdateRequest,
 )
-from backend.app.services.report_service import generate_report
+from backend.app.services.report_service import (
+    generate_report,
+    order_top_runs,
+    resolve_metric_direction,
+)
 from backend.app.services.repository_service import (
     delete_report,
     get_report_by_id,
@@ -51,14 +55,18 @@ def _to_report_list_item(row: Report) -> ReportListItem:
 
 @router.post("/", response_model=ReportResponse)
 def create_report(payload: ReportRequest, db: Session = Depends(get_db)) -> ReportResponse:
+    direction = resolve_metric_direction(payload.metric_key, payload.metric_direction)
+    top_runs = order_top_runs(payload.top_runs, direction)
     report_text, model, report_title = generate_report(
         experiment_name=payload.experiment_name,
         metric_key=payload.metric_key,
-        top_runs=payload.top_runs,
+        top_runs=top_runs,
+        metric_direction=direction,
     )
 
     metadata = {
-        "runs_list": [run.run_name for run in payload.top_runs],
+        "runs_list": [run.run_name for run in top_runs],
+        "metric_direction": direction,
     }
     saved = save_report(
         db,
@@ -67,7 +75,7 @@ def create_report(payload: ReportRequest, db: Session = Depends(get_db)) -> Repo
         report_title=report_title,
         report=report_text,
         model=model,
-        top_runs=payload.top_runs,
+        top_runs=top_runs,
         metadata=metadata,
     )
     return _to_report_response(saved)

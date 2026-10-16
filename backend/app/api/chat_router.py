@@ -1,3 +1,4 @@
+import re
 from typing import Any
 from uuid import UUID
 
@@ -152,8 +153,11 @@ async def chat_with_experiment(
     from backend.app.services.chat_service import (
         answer_experiment_question,
         answer_report_question,
+        answer_run_question,
         classify_intent,
+        extract_single_run_reference,
         generate_session_title,
+        is_run_judgment_question,
         run_with_mcp,
     )
 
@@ -185,6 +189,19 @@ async def chat_with_experiment(
         payload=payload,
         last_meta=last_meta,
     )
+    guessed_run_id, guessed_run_name = extract_single_run_reference(payload.message)
+    run_name = _first_present((intent_args or {}).get("run_name"), guessed_run_name)
+    run_id = _first_present((intent_args or {}).get("run_id"), guessed_run_id)
+    if isinstance(run_name, str):
+        run_name = run_name.strip() or None
+    if isinstance(run_id, str):
+        run_id = run_id.strip() or None
+    # 이전 턴에서 이어받은 metric_key로는 run 전체를 좁히지 않는다.
+    asked_metric_key = (intent_args or {}).get("metric_key")
+    if isinstance(asked_metric_key, str):
+        asked_metric_key = asked_metric_key.strip() or None
+    else:
+        asked_metric_key = None
 
     report_text = payload.report_text
 
@@ -193,12 +210,29 @@ async def chat_with_experiment(
         "list_recent_experiments",
         "get_experiment",
         "get_runs",
+        "get_run_info",
         "list_metric_keys",
         "filter_runs_by_metric",
         "search_runs",
     ]
 
-    if intent in experiment_intents:
+    is_comparison = bool(
+        re.search(r"비교|차이|versus|\bvs\b", payload.message or "", flags=re.IGNORECASE)
+    )
+    # 평가 질문, 또는 run이 있는데 실험 조회 intent가 아닌 질문은 상세 표 대신 모델이 답한다.
+    route_run_qa = bool(run_name or run_id) and not is_comparison and intent != "report_qa" and (
+        is_run_judgment_question(payload.message)
+        or intent not in experiment_intents
+    )
+    if route_run_qa:
+        answer, intent, metadata = answer_run_question(
+            payload.message,
+            experiment_name=experiment_name,
+            run_name=run_name if isinstance(run_name, str) else None,
+            run_id=run_id if isinstance(run_id, str) else None,
+            history=history,
+        )
+    elif intent in experiment_intents:
         answer, intent, metadata = answer_experiment_question(
             intent=intent,
             message=payload.message,
@@ -206,6 +240,9 @@ async def chat_with_experiment(
             metric_key=metric_key,
             top_k=top_k,
             ascending=ascending,
+            run_name=run_name if isinstance(run_name, str) else None,
+            run_id=run_id if isinstance(run_id, str) else None,
+            asked_metric_key=asked_metric_key,
         )
     elif intent == "report_qa":
         answer, intent, metadata = answer_report_question(

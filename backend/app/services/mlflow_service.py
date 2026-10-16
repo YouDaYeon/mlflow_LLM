@@ -1,3 +1,5 @@
+import json
+import re
 import sys
 
 import mlflow
@@ -57,6 +59,88 @@ def _search_runs_df(experiment_name: str) -> pd.DataFrame:
 def get_runs(experiment_name: str) -> list[dict]:
     runs = _search_runs_df(experiment_name)
     return runs.to_dict(orient="records")
+
+
+_RUN_ID_RE = re.compile(r"^[0-9a-fA-F]{32}$")
+
+
+def _mlflow_filter_quote(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _run_lookup_filter(*, run_name: str | None, run_id: str | None) -> str | None:
+    """run 이름 또는 32자리 run id로 MLflow search filter를 만든다."""
+    clauses: list[str] = []
+    raw_id = (run_id or "").strip()
+    raw_name = (run_name or "").strip()
+    if raw_id and _RUN_ID_RE.fullmatch(raw_id):
+        clauses.append(f"attributes.run_id = {_mlflow_filter_quote(raw_id)}")
+    elif raw_id and not raw_name:
+        # 사용자가 run 이름을 run ID라고 부른 경우
+        raw_name = raw_id
+    if raw_name:
+        clauses.append(f"attributes.run_name = {_mlflow_filter_quote(raw_name)}")
+    if not clauses:
+        return None
+    return " OR ".join(clauses)
+
+
+def _frame_to_run_records(frame: pd.DataFrame, id_to_name: dict[str, str]) -> list[dict]:
+    if frame is None or frame.empty:
+        return []
+    records: list[dict] = []
+    for _, row in frame.iterrows():
+        item: dict[str, Any] = {}
+        for key, value in row.items():
+            if pd.isna(value):
+                continue
+            if isinstance(value, pd.Timestamp):
+                item[str(key)] = value.isoformat()
+            elif hasattr(value, "item") and not isinstance(value, (str, bytes)):
+                try:
+                    item[str(key)] = value.item()
+                except (ValueError, AttributeError):
+                    item[str(key)] = value
+            else:
+                item[str(key)] = value
+        exp_id = str(item.get("experiment_id", ""))
+        item["experiment_name"] = id_to_name.get(exp_id, exp_id)
+        records.append(item)
+    return records
+
+
+def find_runs(
+    *,
+    run_name: str | None = None,
+    run_id: str | None = None,
+    experiment_name: str | None = None,
+) -> list[dict]:
+    """run 이름 또는 run id로 run을 찾는다. experiment_name이 있으면 그 실험을 먼저 본다."""
+    filter_string = _run_lookup_filter(run_name=run_name, run_id=run_id)
+    if not filter_string:
+        return []
+
+    experiments = mlflow.search_experiments()
+    id_to_name = {exp.experiment_id: exp.name for exp in experiments}
+    if not id_to_name:
+        return []
+
+    scoped_ids: list[str] | None = None
+    if experiment_name:
+        scoped_ids = [exp_id for exp_id, name in id_to_name.items() if name == experiment_name]
+
+    search_ids = scoped_ids or list(id_to_name)
+    frame = mlflow.search_runs(experiment_ids=search_ids, filter_string=filter_string)
+    records = _frame_to_run_records(frame, id_to_name)
+    if records or not scoped_ids:
+        return records
+
+    frame = mlflow.search_runs(experiment_ids=list(id_to_name), filter_string=filter_string)
+    records = _frame_to_run_records(frame, id_to_name)
+    for record in records:
+        record["matched_outside_experiment"] = experiment_name
+    return records
 
 ## tags 관련 함수
 # [c for i, c in enumerate(runs_df.columns) if c.startswith("tags.")]
@@ -189,17 +273,38 @@ async def mlflow_mcp_health() -> tuple[bool, list[str], str | None]:
     except Exception as exc:  # noqa: BLE001  # 헬스 체크용
         return False, [], f"{type(exc).__name__}: {exc}"
 
-# MCP 결과에서 tool_calls 추출
-def extract_tool_calls(result):
-    tool_calls = []
+def _coerce_tool_arguments(raw: Any) -> Any:
+    """도구 인자를 metadata에 넣을 수 있는 JSON 값으로 맞춘다."""
+    if isinstance(raw, dict):
+        arguments = raw.get("arguments")
+    else:
+        arguments = getattr(raw, "arguments", None)
+    if isinstance(arguments, str):
+        text = arguments.strip()
+        if not text:
+            return {}
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return text
+    return arguments if arguments is not None else {}
 
-    for step in getattr(result, "steps", []):
-        if hasattr(step, "tool_calls"):
-            for call in step.tool_calls:
-                tool_calls.append({
-                    "tool": call.name,
-                    "arguments": call.arguments,
-                })
+
+# MCP 결과에서 tool_calls 추출. Runner 결과는 steps가 없고 new_items에 ToolCallItem이 있다.
+def extract_tool_calls(result):
+    from agents.items import ToolCallItem
+
+    tool_calls = []
+    for item in getattr(result, "new_items", []) or []:
+        if not isinstance(item, ToolCallItem):
+            continue
+        name = item.tool_name
+        if not name:
+            continue
+        tool_calls.append({
+            "tool": name,
+            "arguments": _coerce_tool_arguments(item.raw_item),
+        })
     if not tool_calls:
-        tool_calls = ['No tool calls']
+        tool_calls = ["No tool calls"]
     return tool_calls

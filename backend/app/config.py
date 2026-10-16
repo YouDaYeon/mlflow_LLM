@@ -31,9 +31,9 @@ class Settings(BaseSettings):
     )
 
     # report
-    llama_base_url: str = "http://127.0.0.1:9982"
+    llama_base_url: str = "http://127.0.0.1:9980"
     llama_api_key: str = "llama-local"
-    llama_model: str = "gemma-4-31B-it-UD-Q8_K_XL"
+    llama_model: str = "gemma-4-26B-A4B-it-UD-Q8_K_XL"
     llama_temperature: float = 0.2
 
 

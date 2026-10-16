@@ -23,25 +23,61 @@ services:
       - postgres
     restart: unless-stopped
 
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v3.12.0
+    user: "0:0"
+    command:
+      - mlflow
+      - server
+      - --backend-store-uri
+      - sqlite:////home/dyyu/MLflow/mlflow.db
+      - --default-artifact-root
+      - /home/dyyu/MLflow/artifacts
+      - --artifacts-destination
+      - /home/dyyu/MLflow/artifacts
+      - --serve-artifacts
+      - --workers
+      - "1"
+      - --host
+      - 0.0.0.0
+      - --port
+      - "2522"
+      - --allowed-hosts
+      - "localhost,127.0.0.1,[::1],localhost:*,127.0.0.1:*,[::1]:*,10.*,192.168.*,172.16.*,172.17.*,172.18.*,172.19.*,172.20.*,172.21.*,172.22.*,172.23.*,172.24.*,172.25.*,172.26.*,172.27.*,172.28.*,172.29.*,172.30.*,172.31.*,mlflow,mlflow:*"
+    ports:
+      - "2522:2522"
+    volumes:
+      - /home/dyyu/MLflow:/home/dyyu/MLflow
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:2522/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
     environment:
       DATABASE_URL: postgresql+psycopg://mlflow_llm:mlflow_llm@postgres:5432/mlflow_llm
-      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://127.0.0.1:2522}
+      MLFLOW_TRACKING_URI: http://mlflow:2522
 
-      CHAT_BASE_URL: ${CHAT_BASE_URL:-http://127.0.0.1:9978}
+      CHAT_BASE_URL: ${CHAT_BASE_URL:-http://127.0.0.1:9983}
       CHAT_API_KEY: ${CHAT_API_KEY:-llama-local}
       CHAT_MODEL: ${CHAT_MODEL:-Qwen3.6-35B-A3B}
       CHAT_TEMPERATURE: ${CHAT_TEMPERATURE:-0.2}
 
-      LLAMA_BASE_URL: ${LLAMA_BASE_URL:-http://127.0.0.1:9976/v1}
+      LLAMA_BASE_URL: ${LLAMA_BASE_URL:-http://127.0.0.1:9980/v1}
       LLAMA_API_KEY: ${LLAMA_API_KEY:-llama-local}
-      LLAMA_MODEL: ${LLAMA_MODEL:-gemma-4-31B-it-UD-Q8_K_XL}
+      LLAMA_MODEL: ${LLAMA_MODEL:-gemma-4-26B-A4B-it-UD-Q8_K_XL}
       LLAMA_TEMPERATURE: ${LLAMA_TEMPERATURE:-0.2}
     depends_on:
-      - postgres
+      postgres:
+        condition: service_started
+      mlflow:
+        condition: service_healthy
     ports:
       - "8010:8010"
     restart: unless-stopped
@@ -67,3 +103,9 @@ services:
 
 volumes:
   pgadmin-data:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 192.168.220.0/24

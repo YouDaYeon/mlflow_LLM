@@ -5,6 +5,7 @@ import requests
 import streamlit as st
 
 from backend.app.schemas import RunDisplayRow, format_display_datetime
+from backend.app.services.report_service import infer_metric_direction
 
 st.title("MLflow + FastAPI + Streamlit 템플릿")
 st.markdown(
@@ -147,6 +148,8 @@ def _fetch_metric_keys(experiment_name: str) -> list[str]:
 
 
 def _fetch_runs_for_view(exp: str, metric: str, selected_top_k: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    direction = infer_metric_direction(metric)
+    ascending = direction == "minimize"
     if selected_top_k == DEFAULT_TOP_K_LABEL:
         response = _safe_request(
             "GET",
@@ -162,8 +165,13 @@ def _fetch_runs_for_view(exp: str, metric: str, selected_top_k: Any) -> tuple[li
             return [], {}
         raw_runs = response.json().get("runs", [])
         runs_data = _build_run_summaries_from_raw_runs(raw_runs, metric)
-        runs_data = sorted(runs_data, key=lambda x: x.get("metric_score", 0.0), reverse=True)
-        return runs_data, {"experiment_name": exp, "metric_key": metric, "top_k": DEFAULT_TOP_K_LABEL}
+        runs_data = sorted(runs_data, key=lambda x: x.get("metric_score", 0.0), reverse=not ascending)
+        return runs_data, {
+            "experiment_name": exp,
+            "metric_key": metric,
+            "metric_direction": direction,
+            "top_k": DEFAULT_TOP_K_LABEL,
+        }
 
     response = _safe_request(
         "GET",
@@ -172,7 +180,7 @@ def _fetch_runs_for_view(exp: str, metric: str, selected_top_k: Any) -> tuple[li
             "experiment_name": exp,
             "metric_key": metric,
             "top_k": int(selected_top_k),
-            "ascending": False,
+            "ascending": ascending,
         },
         timeout=30,
     )
@@ -184,7 +192,12 @@ def _fetch_runs_for_view(exp: str, metric: str, selected_top_k: Any) -> tuple[li
         return [], {}
     raw_runs = response.json().get("top_runs", [])
 
-    return raw_runs, {"experiment_name": exp, "metric_key": metric, "top_k": int(selected_top_k)}
+    return raw_runs, {
+        "experiment_name": exp,
+        "metric_key": metric,
+        "metric_direction": direction,
+        "top_k": int(selected_top_k),
+    }
 
 
 def _generate_report(exp: str, metric: str, selected_top_k: Any) -> None:
@@ -192,6 +205,7 @@ def _generate_report(exp: str, metric: str, selected_top_k: Any) -> None:
     if selected_top_k == DEFAULT_TOP_K_LABEL or int(selected_top_k) > 3:
         st.info("보고서 API는 상위 run 최대 3개만 사용합니다. 상위 3개로 생성합니다.")
 
+    direction = infer_metric_direction(metric)
     runs_response = _safe_request(
         "GET",
         "/mlflow/top-runs",
@@ -199,7 +213,7 @@ def _generate_report(exp: str, metric: str, selected_top_k: Any) -> None:
             "experiment_name": exp,
             "metric_key": metric,
             "top_k": report_top_k,
-            "ascending": False,
+            "ascending": direction == "minimize",
         },
         timeout=30,
     )
@@ -218,7 +232,12 @@ def _generate_report(exp: str, metric: str, selected_top_k: Any) -> None:
     report_response = _safe_request(
         "POST",
         "/report/",
-        json={"experiment_name": exp, "metric_key": metric, "top_runs": top_runs},
+        json={
+            "experiment_name": exp,
+            "metric_key": metric,
+            "metric_direction": direction,
+            "top_runs": top_runs,
+        },
         timeout=120,
     )
     if report_response is None:

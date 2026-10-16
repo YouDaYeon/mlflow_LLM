@@ -12,6 +12,7 @@ from backend.app import schemas as _backend_schemas
 # Streamlit은 import를 캐시하므로 schemas 변경이 UI에 안 먹을 수 있음 → 매 실행 reload
 importlib.reload(_backend_schemas)
 from backend.app.schemas import RunDisplayRow, format_display_datetime
+from backend.app.services.report_service import infer_metric_direction
 
 _DISPLAY_TZ = ZoneInfo("Asia/Seoul")
 
@@ -207,6 +208,8 @@ def _fetch_metric_keys(experiment_name: str) -> list[str]:
 
 
 def _fetch_runs_for_view(exp: str, metric: str, selected_top_k: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    direction = infer_metric_direction(metric)
+    ascending = direction == "minimize"
     if selected_top_k == DEFAULT_TOP_K_LABEL:
         response = _safe_request(
             "GET",
@@ -222,8 +225,13 @@ def _fetch_runs_for_view(exp: str, metric: str, selected_top_k: Any) -> tuple[li
             return [], {}
         raw_runs = response.json().get("runs", [])
         runs_data = _build_run_summaries_from_raw_runs(raw_runs, metric)
-        runs_data = sorted(runs_data, key=lambda x: x.get("metric_score", 0.0), reverse=True)
-        return runs_data, {"experiment_name": exp, "metric_key": metric, "top_k": DEFAULT_TOP_K_LABEL}
+        runs_data = sorted(runs_data, key=lambda x: x.get("metric_score", 0.0), reverse=not ascending)
+        return runs_data, {
+            "experiment_name": exp,
+            "metric_key": metric,
+            "metric_direction": direction,
+            "top_k": DEFAULT_TOP_K_LABEL,
+        }
 
     response = _safe_request(
         "GET",
@@ -232,7 +240,7 @@ def _fetch_runs_for_view(exp: str, metric: str, selected_top_k: Any) -> tuple[li
             "experiment_name": exp,
             "metric_key": metric,
             "top_k": int(selected_top_k),
-            "ascending": False,
+            "ascending": ascending,
         },
         timeout=30,
     )
@@ -244,7 +252,12 @@ def _fetch_runs_for_view(exp: str, metric: str, selected_top_k: Any) -> tuple[li
         return [], {}
     raw_runs = response.json().get("top_runs", [])
 
-    return raw_runs, {"experiment_name": exp, "metric_key": metric, "top_k": int(selected_top_k)}
+    return raw_runs, {
+        "experiment_name": exp,
+        "metric_key": metric,
+        "metric_direction": direction,
+        "top_k": int(selected_top_k),
+    }
 
 
 def _apply_report_from_body(
@@ -406,6 +419,9 @@ def _render_saved_reports_panel(
         st.session_state[cache_key] = _fetch_saved_reports(exp_filter)
         st.session_state[cache_filter_key] = exp_filter
 
+    if st.session_state.pop("_pending_reset_report_select", False):
+        st.session_state.pop(f"{panel_key}_selected_report", None)
+
     items: list[dict[str, Any]] = st.session_state.get(cache_key, [])
     if not items:
         st.caption("저장된 보고서가 없습니다.")
@@ -460,6 +476,7 @@ def _generate_report(exp: str, metric: str, selected_top_k: Any) -> None:
     if selected_top_k == DEFAULT_TOP_K_LABEL or int(selected_top_k) > 3:
         st.info("보고서 API는 상위 run 최대 3개만 사용합니다. 상위 3개로 생성합니다.")
 
+    direction = infer_metric_direction(metric)
     runs_response = _safe_request(
         "GET",
         "/mlflow/top-runs",
@@ -467,7 +484,7 @@ def _generate_report(exp: str, metric: str, selected_top_k: Any) -> None:
             "experiment_name": exp,
             "metric_key": metric,
             "top_k": report_top_k,
-            "ascending": False,
+            "ascending": direction == "minimize",
         },
         timeout=30,
     )
@@ -486,7 +503,12 @@ def _generate_report(exp: str, metric: str, selected_top_k: Any) -> None:
     report_response = _safe_request(
         "POST",
         "/report/",
-        json={"experiment_name": exp, "metric_key": metric, "top_runs": top_runs},
+        json={
+            "experiment_name": exp,
+            "metric_key": metric,
+            "metric_direction": direction,
+            "top_runs": top_runs,
+        },
         timeout=120,
     )
     if report_response is None:
@@ -498,6 +520,30 @@ def _generate_report(exp: str, metric: str, selected_top_k: Any) -> None:
 
     body = report_response.json()
     _apply_report_from_body(body, experiment_name=exp, metric_key=metric, source="generated")
+
+
+def _format_tool_calls_caption(tool_calls: Any) -> str | None:
+    """metadata tool_calls를 intent 캡션과 같은 한 줄로 만든다."""
+    if tool_calls is None or tool_calls == "" or tool_calls == []:
+        return None
+    items = tool_calls if isinstance(tool_calls, list) else [tool_calls]
+    labels: list[str] = []
+    for item in items:
+        if isinstance(item, dict):
+            name = item.get("tool") or item.get("name")
+            if name:
+                labels.append(str(name))
+        elif item is not None and str(item).strip():
+            labels.append(str(item).strip())
+    if not labels:
+        return None
+    return "tool calls: " + ", ".join(labels)
+
+
+def _render_tool_calls_caption(tool_calls: Any) -> None:
+    caption = _format_tool_calls_caption(tool_calls)
+    if caption:
+        st.caption(caption)
 
 
 def _render_chat_bubble(role: str, content: str) -> None:
@@ -649,12 +695,16 @@ def _load_chat_session(session_id: str) -> bool:
         st.code(response.text)
         return False
     items = response.json().get("items") or []
-    messages: list[dict[str, str]] = []
+    messages: list[dict[str, Any]] = []
     for item in items:
         role = item.get("role", "")
         content = item.get("content", "")
         if role in ("user", "assistant") and content:
-            messages.append({"role": role, "content": content})
+            message: dict[str, Any] = {"role": role, "content": content}
+            tool_calls = (item.get("metadata") or {}).get("tool_calls")
+            if tool_calls:
+                message["tool_calls"] = tool_calls
+            messages.append(message)
     if not messages:
         messages = [{"role": "assistant", "content": CHAT_WELCOME_MESSAGE}]
     st.session_state["chat_session_id"] = session_id
@@ -694,6 +744,7 @@ def _append_and_answer_chat(
         chat_payload["metric_key"] = current_metric
 
     chat_response = _safe_request("POST", "/chat/ask", json=chat_payload, timeout=120)
+    tool_calls = None
     if chat_response is None:
         answer = "챗봇 요청 실패: 백엔드 요청에 실패했습니다."
         intent = "-"
@@ -701,10 +752,12 @@ def _append_and_answer_chat(
         data = chat_response.json()
         answer = data.get("answer", "응답이 비어 있습니다.")
         intent = data.get("intent", "-")
+        meta = data.get("metadata") or {}
+        tool_calls = meta.get("tool_calls")
         returned_session_id = data.get("session_id")
         if returned_session_id:
             st.session_state["chat_session_id"] = returned_session_id
-        resolved = _context_from_metadata(data.get("metadata") or {})
+        resolved = _context_from_metadata(meta)
         if resolved:
             prev = dict(st.session_state.get("chat_resolved_context") or {})
             prev.update(resolved)
@@ -713,9 +766,13 @@ def _append_and_answer_chat(
         answer = f"챗봇 응답 실패 ({chat_response.status_code})"
         intent = "-"
 
-    st.session_state["chat_messages"].append({"role": "assistant", "content": answer})
+    assistant_message: dict[str, Any] = {"role": "assistant", "content": answer}
+    if tool_calls:
+        assistant_message["tool_calls"] = tool_calls
+    st.session_state["chat_messages"].append(assistant_message)
     with st.chat_message("assistant"):
         st.caption(f"intent: {intent}")
+        _render_tool_calls_caption(tool_calls)
         resolved = st.session_state.get("chat_resolved_context") or {}
         if resolved:
             bits: list[str] = []
@@ -842,6 +899,8 @@ def show_chat_dialog() -> None:
 
     for message in st.session_state["chat_messages"]:
         with st.chat_message(message["role"]):
+            if message["role"] == "assistant":
+                _render_tool_calls_caption(message.get("tool_calls"))
             _render_chat_bubble(message["role"], message["content"])
 
     st.caption("예시 질문")
@@ -966,7 +1025,8 @@ if not runs_data:
 else:
     st.caption(
         f"experiment `{runs_meta.get('experiment_name', '-')}` · "
-        f"`{runs_meta.get('metric_key', '-')}` 기준 {len(runs_data)}개 "
+        f"`{runs_meta.get('metric_key', '-')}`"
+        f" ({runs_meta.get('metric_direction') or '방향 미정'}) 기준 {len(runs_data)}개 "
         f"(K={runs_meta.get('top_k', '-')})"
     )
     st.dataframe(
@@ -981,6 +1041,10 @@ else:
 # =========================================================================
 st.divider()
 st.subheader("보고서")
+
+delete_notice = st.session_state.pop("_report_delete_notice", None)
+if delete_notice:
+    st.success(delete_notice)
 
 report_text = st.session_state.get("generated_report_text", "")
 report_meta = st.session_state.get("generated_report_meta", {})
@@ -1012,7 +1076,8 @@ else:
     updated_label = _format_ui_datetime(updated_at) if updated_at else "-"
     report_id = str(report_meta.get("id") or "")
 
-    meta_col, edit_col = st.columns([5, 1])
+    can_manage_report = bool(report_id) and not st.session_state.get("report_edit_mode")
+    meta_col, edit_col, delete_col = st.columns([4, 1, 1])
     with meta_col:
         st.caption(
             f"제목: `{st.session_state.get('generated_report_title') or '-'}` · "
@@ -1022,13 +1087,20 @@ else:
             f"비교 run 목록: {report_meta.get('metadata', {})}"
         )
     with edit_col:
-        if report_id and not st.session_state.get("report_edit_mode"):
-            if st.button("수정하기", key="report_edit_btn", use_container_width=True):
-                st.session_state["report_edit_mode"] = True
-                st.session_state["report_edit_draft"] = report_text
-                st.session_state["report_edit_title_draft"] = (
-                    st.session_state.get("generated_report_title") or ""
-                )
+        if can_manage_report and st.button("수정하기", key="report_edit_btn", use_container_width=True):
+            st.session_state["report_edit_mode"] = True
+            st.session_state["report_edit_draft"] = report_text
+            st.session_state["report_edit_title_draft"] = (
+                st.session_state.get("generated_report_title") or ""
+            )
+            st.rerun()
+    with delete_col:
+        if can_manage_report and st.button("삭제하기", key="report_delete_btn", use_container_width=True):
+            if _delete_saved_report(report_id):
+                _clear_main_report_if_matching(report_id)
+                st.session_state.pop("sidebar_saved_reports", None)
+                st.session_state["_pending_reset_report_select"] = True
+                st.session_state["_report_delete_notice"] = "보고서를 삭제했습니다."
                 st.rerun()
 
     if st.session_state.get("report_edit_mode"):
@@ -1078,7 +1150,7 @@ else:
                         _apply_report_from_body(body, source="edited")
                         st.rerun()
     else:
-        st.markdown(report_text)
+        st.markdown(report_text, unsafe_allow_html=True)
 
 
 # =========================================================================

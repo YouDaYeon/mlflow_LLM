@@ -1,14 +1,26 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime, timezone
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field
 
 DISPLAY_TZ = ZoneInfo("Asia/Seoul")
+
+
+def _finite_float(value: object) -> float | None:
+    """NaN/Infinity는 JSONB에 넣을 수 없으므로 None으로 바꾼다."""
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
 
 
 def _to_display_timezone(dt: datetime) -> datetime:
@@ -137,12 +149,7 @@ class RunDisplayRow(BaseModel):
         if metric_key and str(metric_key).strip():
             mk = str(metric_key).strip()
             metric_col = mk if mk.startswith("metrics.") else f"metrics.{mk}"
-        metric_score = None
-        if metric_col and raw.get(metric_col) is not None:
-            try:
-                metric_score = float(raw[metric_col])
-            except (TypeError, ValueError):
-                pass
+        metric_score = _finite_float(raw.get(metric_col)) if metric_col else None
 
         params = {
             k.removeprefix("params."): str(v)
@@ -243,6 +250,7 @@ class ReportRequest(BaseModel):
     experiment_name: str = Field(..., min_length=1)
     metric_key: str = Field(...)
     top_runs: list[RunSummary] = Field(..., min_length=1, max_length=3)
+    metric_direction: Literal["maximize", "minimize"] | None = None
 
 class ReportResponse(BaseModel):
     id: UUID
