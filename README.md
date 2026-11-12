@@ -41,6 +41,27 @@ metric 이름은 줄여 말해도 됩니다. `mAP50B`, `recall`, `val_acc`로 �
 
 ---
 
+## 구조 개선 전후 평가
+
+LLM이 의도를 선택하고 MLflow MCP 도구를 직접 호출하던 방식에서, **질문 구조화 → 코드 기반 조회·계산 → 필요 시 LLM 요약**으로 변경했습니다(구조 설명은 [동작 구조와 핵심 설계](#동작-구조와-핵심-설계)). 동일한 질문 세트를 두 구조에 입력해 요청 반영 여부와 응답 시간을 비교했습니다.
+
+![3단계 처리 구조 전환 전후 평가](./image/eval_summary.png)
+
+- **요청을 완전히 반영한 답변:** 36개 중 5개 → 35개
+- **추가 검증 질문:** 11개 중 5개 → 11개 (구조 개선에 사용하지 않은 질문)
+- **응답 시간 p90:** 11.5초 → 2.7초
+- **응답 시간 중앙값:** 1.3초 → 1.8초
+
+평가 범위에서는 요청 반영률이 높아지고 느린 응답의 지연이 줄었습니다. 중앙값은 소폭 증가했습니다.
+
+요청 반영 여부는 조회 조건과 최종 답변을 사람이 확인해 판정했습니다. 응답 시간은 두 버전에서 모두 3회씩 실행한 공통 질문 31개로 측정했습니다(평가 질문 36개 중 나중에 추가한 5개는 전환 전 버전에서 1회만 실행).
+
+> 평가 일자 2026-11-11 · 채팅 모델 Qwen3.6-35B-A3B · 같은 MLflow 서버·DB·LLM · 비교 커밋 `b9d9bca` → `fb23f42`
+>
+> 판정 기준, 전체 지표, 원인 추정, 한계: **[상세 평가 문서](docs/evaluation.md)**
+
+---
+
 ## 동작 구조와 핵심 설계
 
 ![실험 데이터에 근거한 답변을 위한 3단계 처리 구조](./image/architecture_roles.png)
@@ -54,11 +75,16 @@ metric 이름은 줄여 말해도 됩니다. `mAP50B`, `recall`, `val_acc`로 �
 
 **설계 원칙**
 
-1. **숫자는 코드가 만듭니다.** run 선택, 정렬, 차이 계산, 비교표는 `backend/app/services/chat_request.py`에서 MLflow 원본 값으로 만듭니다. 그래서 같은 질문에는 같은 결과가 나옵니다.
+1. **숫자는 코드가 만듭니다.** run 선택, 정렬, 차이 계산, 비교표는 `backend/app/services/chat_request.py`에서 MLflow 원본 값으로 만듭니다. 질문 해석(①)은 LLM이 하므로 응답 전체가 항상 같지는 않지만, 요청 구조와 MLflow 데이터가 같으면 조회·정렬·계산 결과는 같습니다.
 2. **목록·정렬·비교표는 ③을 건너뜁니다.** ②의 결과를 그대로 답하므로 추가 LLM 호출이 없습니다. 평가 세트 기준 질문당 LLM 호출은 평균 1.10회였습니다(대화 첫 턴의 세션 제목 생성은 별도).
 3. **근거 줄은 LLM을 거치지 않습니다.** 답변 첫 줄의 *적용 조건*은 각 값의 출처(질문, 이전 대화, UI 선택, 가장 최근 실험, 기본값)까지 ②의 코드가 작성해 답변에 직접 붙입니다. ③을 거치는 답변도 마찬가지라서 LLM이 근거 줄을 바꿀 수 없습니다.
 4. **처리 경로를 기록합니다.** 답변 metadata의 `route`(거친 함수 경로)와 `tool calls`(실제로 조회한 함수)가 챗봇 화면에 함께 표시됩니다.
-5. **다른 진입 경로:** '새 보고서 생성' 버튼은 ①을 거치지 않고 ② 상위 run 조회·정렬 → ③ 보고서용 LLM(`LLAMA_*`)으로 갑니다. '보고서로 질문하기'는 ① 다음에 MLflow를 다시 조회하지 않고 저장된 보고서 본문을 ③에 넘깁니다. 요청 구조로 답할 수 없는 질문은 보조 경로인 MLflow MCP 에이전트로 넘깁니다.
+
+### 보고서 및 보조 처리 경로
+
+- **새 보고서 생성** 버튼: ①을 거치지 않고 ② 상위 run 조회·정렬 → ③ 보고서용 LLM(`LLAMA_*`)으로 갑니다.
+- **이 보고서로 질문하기**: ① 다음에 MLflow를 다시 조회하지 않고, 저장된 보고서 본문을 ③에 넘깁니다.
+- **MLflow MCP 에이전트**: 요청 구조로 답할 수 없는 질문은 이 보조 경로로 넘깁니다(`chat_service.py`).
 
 ### 실제 질문 처리 예시
 
@@ -119,10 +145,11 @@ cp .env.example .env
 | `CHAT_BASE_URL` · `CHAT_API_KEY` · `CHAT_MODEL` | 질문 해석·챗 답변용 LLM. `CHAT_MODEL`은 서버의 `/v1/models`에 나오는 id와 같아야 합니다. |
 | `LLAMA_BASE_URL` · `LLAMA_API_KEY` · `LLAMA_MODEL` | 보고서 생성용 LLM |
 | `CHAT_HISTORY_LIMIT` | 해석할 때 참고하는 최근 대화 수 (기본 6) |
+| `MLFLOW_TRACKING_URI` | 호스트에서 실행하는 샘플 스크립트·로컬 개발 모드가 기록·조회할 MLflow 주소 (예시값 `http://127.0.0.1:2522`는 compose의 MLflow 포트) |
 | `MLFLOW_UI_URL` | 화면의 "MLflow에서 실험 보기" 링크. 사용자 브라우저에서 열리는 주소 |
 | `PGADMIN_DEFAULT_EMAIL` · `PGADMIN_DEFAULT_PASSWORD` | pgAdmin 로그인 (선택) |
 
-Docker로 띄울 때 `DATABASE_URL`과 `MLFLOW_TRACKING_URI`는 `docker-compose.yml`에 컨테이너 주소로 고정되어 있어 `.env` 값이 쓰이지 않습니다.
+Docker로 띄울 때 `DATABASE_URL`과 `MLFLOW_TRACKING_URI`는 `docker-compose.yml`에 컨테이너 주소로 고정되어 있어 `.env` 값이 쓰이지 않습니다. `.env`의 `MLFLOW_TRACKING_URI`는 호스트에서 실행하는 샘플 스크립트(5단계)가 씁니다.
 
 ### 3. 실행
 
@@ -145,11 +172,14 @@ docker compose ps        # backend가 healthy가 될 때까지 대기
 
 ### 5. 첫 질문
 
-MLflow에 실험이 하나도 없다면 샘플 실험을 먼저 기록하세요. `mlflow/run_dummy_exp.py`가 DistilBERT로 짧은 학습을 돌려 `dummy-distilbert` 실험에 run 여러 개를 남깁니다(`torch`, `transformers` 필요, 자세한 내용은 [mlflow/exp.md](mlflow/exp.md)).
+MLflow에 실험이 하나도 없다면 샘플 실험을 먼저 기록하세요. `mlflow/run_dummy_exp.py`는 **호스트에서** 실행하며, 프로젝트 루트 `.env`의 `MLFLOW_TRACKING_URI`로 기록합니다. 3단계에서 띄운 MLflow에 기록하려면 예시값 `http://127.0.0.1:2522`를 그대로 두고, 다른 MLflow를 쓰면 그 주소로 바꾸세요.
 
 ```bash
+pip install mlflow torch transformers python-dotenv
 python mlflow/run_dummy_exp.py
 ```
+
+DistilBERT(`distilbert-base-uncased`)로 5 step짜리 학습을 하이퍼파라미터만 바꿔 세 번 돌려 `dummy-distilbert` 실험에 run 3개를 남깁니다. 첫 실행 때 Hugging Face에서 모델을 내려받으므로 인터넷 연결이 필요하고, GPU가 없으면 CPU로 돌아갑니다. 자세한 내용은 [mlflow/exp.md](mlflow/exp.md)를 보세요.
 
 화면 오른쪽 아래 **QA 챗봇**을 열고 순서대로 물어보세요.
 
@@ -173,27 +203,6 @@ Conda 환경은 `environment.yaml`에 있습니다.
 
 ---
 
-## 구조 변경 효과
-
-LLM이 의도를 선택하고 MLflow MCP 도구를 직접 호출하던 방식에서, **질문 구조화 → 코드 기반 조회·계산 → 필요 시 LLM 요약**으로 변경했습니다. 동일한 질문 세트를 두 구조에 입력해 요청 반영 여부와 응답 시간을 비교했습니다.
-
-![3단계 처리 구조 전환 전후 평가](./image/eval_summary.png)
-
-- **요청을 완전히 반영한 답변:** 36개 중 5개 → 35개
-- **추가 검증 질문:** 11개 중 5개 → 11개 (구조 개선에 사용하지 않은 질문)
-- **응답 시간 p90:** 11.5초 → 2.7초
-- **응답 시간 중앙값:** 1.3초 → 1.8초
-
-평가 범위에서는 요청 반영률이 높아지고 느린 응답의 지연이 줄었습니다. 중앙값은 소폭 증가했습니다.
-
-요청 반영 여부는 조회 조건과 최종 답변을 사람이 확인해 판정했습니다. 응답 시간은 두 버전에서 모두 3회씩 실행한 공통 질문 31개로 측정했습니다(평가 질문 36개 중 나중에 추가한 5개는 전환 전 버전에서 1회만 실행).
-
-> 평가 일자 2026-11-11 · 채팅 모델 Qwen3.6-35B-A3B · 같은 MLflow 서버·DB·LLM · 비교 커밋 `b9d9bca` → `fb23f42`
->
-> 판정 기준, 전체 지표, 원인 추정, 한계: **[상세 평가 문서](docs/evaluation.md)**
-
----
-
 ## 프로젝트 구조
 
 ```text
@@ -208,7 +217,7 @@ mlflow_LLM_dy/
 │   │   └── repository_service.py  # 보고서·대화 저장
 │   ├── db/               # SQLAlchemy 모델, 테이블 생성
 │   └── main.py
-├── frontend/app_2.py     # Streamlit 화면 (app.py는 구버전)
+├── frontend/app_2.py     # Streamlit 화면
 ├── docs/evaluation.md    # 전환 전후 상세 평가
 ├── eval/                 # 평가 스크립트, 질문 세트, 결과(results/)
 ├── mlflow/               # 샘플 실험 기록 스크립트

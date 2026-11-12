@@ -48,10 +48,8 @@ mlflow_LLM_dy/
 │   ├── services/            # mlflow / report / chat / repository
 │   └── db/                  # models, session, init_db
 ├── frontend/
-│   ├── app_2.py             # ★ 메인 UI
-│   └── app.py               # 구버전 (참고용)
+│   └── app_2.py             # ★ 메인 UI
 ├── docker-compose.yml
-├── run.sh                   # 로컬 실행 메모
 ├── .env / .env.example
 ├── README.md
 └── multi_trun.md            # 멀티턴·세션 영속화 상세 메모
