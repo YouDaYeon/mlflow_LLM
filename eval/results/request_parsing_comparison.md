@@ -12,7 +12,7 @@
 |---|---|
 | [request_parsing_prompts.md](request_parsing_prompts.md) | 개선 전/후 프롬프트 전문 |
 | [request_parsing_answers.md](request_parsing_answers.md) | 케이스별 해석 결과, 호출한 도구, 답변 전문(개선 전/후 나란히) |
-| [request_parsing_changes.diff](request_parsing_changes.diff) | HEAD 대비 코드 변경 전체(diff) |
+| 커밋 `fb23f42` | 코드 변경 전체: `git diff b9d9bca fb23f42 -- backend/` |
 | [request_parsing_baseline.md](request_parsing_baseline.md) | 개선 전 기준선 분석(어제 작성) |
 
 ## 1. 결과 요약
@@ -188,7 +188,7 @@
    - 파서가 JSON을 내지 못했을 때 MCP로 넘기는 처리
 4. **A11 평가 문장 품질(△):** 근거와 결론은 맞지만, 3회 중 2회 첫 문장에 "과적합 가능성"과 "일반화 양호"가 함께 나온다. 평가 프롬프트를 더 다듬을 여지가 있다.
 5. **응답시간 중앙값이 0.4초 늘었다.** 해석 프롬프트의 예시 26개를 줄이면 개선될 수 있다.
-6. **기존 평가 스크립트 `eval/compare_meta_prompt.py`는 이제 동작하지 않는다.** 삭제된 `chat_service.classify_intent`·`INTENT_PARSING_PROMPT`를 직접 참조하기 때문이다. HEAD 워크트리에서만 실행할 수 있다.
+6. **기존 평가 스크립트 `eval/compare_meta_prompt.py`는 삭제했다.** intent 분류가 없어져 실행할 수 없었다. 필요하면 `git show fb23f42:eval/compare_meta_prompt.py`로 복구한다.
 7. **커밋하지 않았다.** 검토 후 커밋 여부를 정해 주세요.
 
 ## 6. 다시 실행하는 법
