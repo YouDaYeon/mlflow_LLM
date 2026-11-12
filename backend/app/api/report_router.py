@@ -50,6 +50,7 @@ def _to_report_list_item(row: Report) -> ReportListItem:
         experiment_name=row.experiment_name,
         metric_key=row.metric_key,
         report_title=row.report_title,
+        run_count=len(row.top_runs) if isinstance(row.top_runs, list) else None,
     )
 
 

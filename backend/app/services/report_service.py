@@ -59,7 +59,8 @@ metric_direction이 없으면 높고 낮음을 좋고 나쁨으로 단정하지 
 보고서 본문은 읽기 좋은 HTML 조각으로만 작성하라.
 마크다운, 코드 펜스(```), 서두 설명은 출력하지 마라.
 <html>, <head>, <body>, <style>, <script> 태그는 사용하지 마라.
-사용할 수 있는 태그는 h1, h2, h3, p, ul, ol, li, table, thead, tbody, tr, th, td, strong이다.
+보고서 제목(h1)은 작성하지 마라. 본문은 h2 섹션부터 시작하라.
+사용할 수 있는 태그는 h2, h3, p, ul, ol, li, table, thead, tbody, tr, th, td, strong이다.
 표는 지표 비교처럼 숫자가 나란히 보일 때만 쓰고, 문단과 목록으로 구분해 읽기 쉽게 구성하라.
 """
 
@@ -79,16 +80,13 @@ def _strip_code_fence(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def _ensure_report_title(report_content: str, experiment_name: str) -> str:
-    title = _report_title(experiment_name)
+_LEADING_H1_RE = re.compile(r"^\s*<h1\b[^>]*>.*?</h1>\s*", re.IGNORECASE | re.DOTALL)
+
+
+def _strip_report_title(report_content: str) -> str:
+    """보고서 제목은 report_title로 따로 내려가므로 본문 맨 앞의 h1 제목은 제거한다."""
     cleaned = _strip_code_fence(report_content)
-    if not cleaned:
-        return f"<h1>{title}</h1>"
-    if title in cleaned:
-        return cleaned
-    if cleaned.lstrip().startswith("<"):
-        return f"<h1>{title}</h1>\n{cleaned}"
-    return f"{title}\n\n{cleaned}"
+    return _LEADING_H1_RE.sub("", cleaned, count=1).strip()
 
 
 def _build_user_prompt(
@@ -103,8 +101,6 @@ def _build_user_prompt(
         "metric_direction": metric_direction,
         "top_runs": [run.model_dump() for run in top_runs],
     }
-
-    title = _report_title(experiment_name)
 
     return f"""당신은 머신러닝 실험 결과를 분석하고 기술 보고서를 작성하는 전문가다.
 제공된 JSON 데이터를 근거로 실험 결과 보고서를 작성하라.
@@ -133,8 +129,7 @@ def _build_user_prompt(
 ## 2. 보고서 작성 구조
 
 다음 순서와 HTML 태그 구조를 준수한다.
-
-<h1>{title}</h1>
+보고서 제목은 별도로 관리되므로 본문에 제목(h1)을 작성하지 않는다. 첫 줄은 바로 h2 섹션으로 시작한다.
 
 <h2>1. 실험 개요 및 핵심 결과</h2>
 <p>
@@ -206,7 +201,7 @@ metric_direction이 null이면 Best를 단정하지 않고 그 한계를 명시�
 
 - HTML 조각만 출력한다. Markdown 코드 블록이나 별도 설명은 출력하지 않는다.
 - 전체 문서를 감싸는 html, head, body 태그는 사용하지 않는다.
-- 허용 태그: h1, h2, h3, p, ul, ol, li, table, thead, tbody, tr, th, td, strong, em.
+- 허용 태그: h2, h3, p, ul, ol, li, table, thead, tbody, tr, th, td, strong, em.
 - 모든 태그를 올바르게 닫고 유효한 HTML 구조를 유지한다.
 - 표의 열과 데이터 개수를 일치시킨다.
 - 입력 데이터에 없는 수치나 실험 결과를 만들어 내지 않는다.
@@ -242,6 +237,6 @@ def generate_report(
     )
 
     content = completion.choices[0].message.content or ""
-    formatted = _ensure_report_title(content, experiment_name)
+    formatted = _strip_report_title(content)
     report_title = _report_title(experiment_name)
     return formatted, settings.llama_model, report_title

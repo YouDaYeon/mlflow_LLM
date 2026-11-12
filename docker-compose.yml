@@ -94,6 +94,7 @@ services:
       dockerfile: frontend/Dockerfile
     environment:
       API_BASE_URL: ${API_BASE_URL:-http://backend:8010}
+      MLFLOW_UI_URL: ${MLFLOW_UI_URL:-http://localhost:2522}
     ports:
       - "8501:8501"
     depends_on:

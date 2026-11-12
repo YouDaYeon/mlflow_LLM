@@ -1,11 +1,15 @@
+import functools
 import json
 import re
 import sys
+from contextvars import ContextVar
 
 import mlflow
 import pandas as pd
+import requests
 
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import HTTPException
 from backend.app.config import settings
@@ -13,6 +17,47 @@ from backend.app.schemas import RunSummary
 
 # MLflow 실험 설정
 mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
+
+# 챗봇 요청 단위로 어떤 도구(MLflow 조회/LLM 호출)를 썼는지 기록한다.
+# start_tool_call_recording()을 호출한 요청 안에서만 기록되며, 그 외 라우트에서는 아무 일도 하지 않는다.
+_tool_call_log: ContextVar[list[dict] | None] = ContextVar("tool_call_log", default=None)
+_tool_call_depth: ContextVar[int] = ContextVar("tool_call_depth", default=0)
+
+
+def start_tool_call_recording() -> list[dict]:
+    """현재 요청 컨텍스트에서 tool call 기록을 시작하고 기록 리스트를 반환한다."""
+    log: list[dict] = []
+    _tool_call_log.set(log)
+    _tool_call_depth.set(0)
+    return log
+
+
+def record_tool_call(name: str, arguments: dict | None = None) -> None:
+    log = _tool_call_log.get()
+    if log is None:
+        return
+    clean_args = {k: v for k, v in (arguments or {}).items() if v is not None}
+    log.append({"tool": name, "arguments": clean_args})
+
+
+def traced_tool(func):
+    """함수 호출을 tool call로 기록한다. 중첩 호출은 가장 바깥 호출만 남긴다."""
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        depth = _tool_call_depth.get()
+        if depth == 0:
+            arguments = dict(zip(func.__code__.co_varnames, args))
+            arguments.update(kwargs)
+            record_tool_call(func.__name__, arguments)
+        token = _tool_call_depth.set(depth + 1)
+        try:
+            return func(*args, **kwargs)
+        finally:
+            _tool_call_depth.reset(token)
+
+    return wrapper
+
 
 METRIC_PREFIX = "metrics."
 PARAM_PREFIX = "params."
@@ -23,6 +68,30 @@ def get_tracking_uri():
     tracking_uri = mlflow.get_tracking_uri()
     return tracking_uri
 
+
+def set_tracking_uri(tracking_uri: str) -> str:
+    """연결할 MLflow 서버를 런타임에 변경한다(백엔드 재시작 시 .env 값으로 복귀).
+
+    조회 API(mlflow 클라이언트)와 챗봇 MCP(요청마다 settings 값으로 기동) 모두에 적용된다.
+    """
+    uri = tracking_uri.strip().rstrip("/")
+    parsed = urlparse(uri)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise HTTPException(status_code=400, detail="http:// 또는 https:// 로 시작하는 MLflow 서버 주소를 입력해주세요.")
+    try:
+        health = requests.get(f"{uri}/health", timeout=5)
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"MLflow 서버에 연결할 수 없습니다: {exc}") from exc
+    if health.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"MLflow 서버 응답이 올바르지 않습니다 (/health {health.status_code})",
+        )
+    settings.mlflow_tracking_uri = uri
+    mlflow.set_tracking_uri(uri)
+    return uri
+
+@traced_tool
 def list_experiment_names() -> list[str]:
     """MLflow에 등록된 Experiment 이름 목록(정렬)."""
     experiments = mlflow.search_experiments()
@@ -38,6 +107,7 @@ def _get_experiment_or_404(experiment_name: str):
     return experiment
 
 
+@traced_tool
 def get_experiment(experiment_name: str) -> dict:
     experiment = _get_experiment_or_404(experiment_name)
     return {
@@ -56,6 +126,7 @@ def _search_runs_df(experiment_name: str) -> pd.DataFrame:
     experiment = _get_experiment_or_404(experiment_name)
     return mlflow.search_runs(experiment_ids=[experiment.experiment_id])
     
+@traced_tool
 def get_runs(experiment_name: str) -> list[dict]:
     runs = _search_runs_df(experiment_name)
     return runs.to_dict(orient="records")
@@ -110,6 +181,7 @@ def _frame_to_run_records(frame: pd.DataFrame, id_to_name: dict[str, str]) -> li
     return records
 
 
+@traced_tool
 def find_runs(
     *,
     run_name: str | None = None,
@@ -154,6 +226,7 @@ def list_run_users(experiment_name: str) -> list[str]:
     return runs_df["tags.mlflow.user"].unique().tolist()
 
 ## metric 관련 함수
+@traced_tool
 def list_run_metrics(experiment_name: str) -> list[str]:
     runs_df = _search_runs_df(experiment_name)
     return sorted(runs_df.columns[runs_df.columns.str.startswith("metrics.")].tolist())
@@ -219,10 +292,38 @@ def get_top_runs(
     return [_row_to_run_summary(row, metric_column) for _, row in top_df.iterrows()]
 
 
-def list_recent_experiment_names(limit: int = 5) -> list[str]:
+RECENT_EXPERIMENT_ORDER_FIELDS = ("creation_time", "last_update_time")
+
+
+@traced_tool
+def list_recent_experiments(
+    limit: int = 5,
+    order_by: str = "creation_time",
+    ascending: bool = False,
+) -> list[dict]:
+    """시간 기준으로 정렬한 실험 목록. order_by는 creation_time 또는 last_update_time."""
+    if order_by not in RECENT_EXPERIMENT_ORDER_FIELDS:
+        order_by = "creation_time"
     experiments = mlflow.search_experiments()
-    sorted_experiments = sorted(experiments, key=lambda exp: exp.creation_time or 0, reverse=True)
-    return [exp.name for exp in sorted_experiments[:limit]]
+    sorted_experiments = sorted(
+        experiments,
+        key=lambda exp: getattr(exp, order_by, None) or 0,
+        reverse=not ascending,
+    )
+    return [
+        {
+            "experiment_name": exp.name,
+            "experiment_id": exp.experiment_id,
+            "creation_time": exp.creation_time,
+            "last_update_time": exp.last_update_time,
+        }
+        for exp in sorted_experiments[: max(limit, 0)]
+    ]
+
+
+@traced_tool
+def list_recent_experiment_names(limit: int = 5) -> list[str]:
+    return [exp["experiment_name"] for exp in list_recent_experiments(limit=limit)]
 
 
 #### test

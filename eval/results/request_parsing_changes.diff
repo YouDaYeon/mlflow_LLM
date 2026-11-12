@@ -1,0 +1,2430 @@
+diff --git a/backend/app/api/chat_router.py b/backend/app/api/chat_router.py
+index f909449..12a13b9 100644
+--- a/backend/app/api/chat_router.py
++++ b/backend/app/api/chat_router.py
+@@ -1,5 +1,3 @@
+-import re
+-from typing import Any
+ from uuid import UUID
+ 
+ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+@@ -41,52 +39,6 @@ def _to_session_item(row) -> ChatSessionListItem:
+     )
+ 
+ 
+-def _first_present(*values: Any) -> Any:
+-    for value in values:
+-        if value is None:
+-            continue
+-        if isinstance(value, str) and not value.strip():
+-            continue
+-        return value
+-    return None
+-
+-
+-def _resolve_experiment_args(
+-    *,
+-    intent_args: dict[str, Any] | None,
+-    payload: ChatRequest,
+-    last_meta: dict[str, Any],
+-) -> tuple[str | None, str | None, int | None, bool]:
+-    """intent args → payload → 이전 assistant metadata 순으로 빈 값을 채운다."""
+-    args = intent_args or {}
+-    experiment_name = _first_present(
+-        args.get("experiment_name"),
+-        payload.experiment_name,
+-        last_meta.get("experiment_name"),
+-    )
+-    metric_key = _first_present(
+-        args.get("metric_key"),
+-        payload.metric_key,
+-        last_meta.get("metric_key"),
+-    )
+-    top_k = _first_present(args.get("top_k"), last_meta.get("top_k"))
+-    if isinstance(top_k, str) and top_k.isdigit():
+-        top_k = int(top_k)
+-    elif top_k is not None and not isinstance(top_k, int):
+-        try:
+-            top_k = int(top_k)
+-        except (TypeError, ValueError):
+-            top_k = None
+-
+-    ascending_raw = _first_present(args.get("ascending"), last_meta.get("ascending"))
+-    if ascending_raw is None:
+-        ascending = False
+-    else:
+-        ascending = bool(ascending_raw)
+-
+-    return experiment_name, metric_key, top_k, ascending
+-
+-
+ @router.post("/sessions", response_model=ChatSessionCreateResponse)
+ def create_session(db: Session = Depends(get_db)) -> ChatSessionCreateResponse:
+     row = create_chat_session(db)
+@@ -150,16 +102,9 @@ async def chat_with_experiment(
+     db: Session = Depends(get_db),
+ ) -> ChatResponse:
+     # 다른 라우트 기동에 영향 없도록 chat 의존성은 실제 호출 시 로드한다.
+-    from backend.app.services.chat_service import (
+-        answer_experiment_question,
+-        answer_report_question,
+-        answer_run_question,
+-        classify_intent,
+-        extract_single_run_reference,
+-        generate_session_title,
+-        is_run_judgment_question,
+-        run_with_mcp,
+-    )
++    from backend.app.services.chat_request import answer_request, parse_request
++    from backend.app.services.chat_service import generate_session_title, run_with_mcp
++    from backend.app.services.mlflow_service import start_tool_call_recording
+ 
+     if payload.session_id is None:
+         session = create_chat_session(db)
+@@ -182,93 +127,32 @@ async def chat_with_experiment(
+     else:
+         history = list(payload.history or [])
+ 
+-    intent, intent_args = classify_intent(payload.message, history=history)
+-    last_meta = get_last_assistant_context(db, session_id=session_id)
+-    experiment_name, metric_key, top_k, ascending = _resolve_experiment_args(
+-        intent_args=intent_args,
+-        payload=payload,
+-        last_meta=last_meta,
+-    )
+-    guessed_run_id, guessed_run_name = extract_single_run_reference(payload.message)
+-    run_name = _first_present((intent_args or {}).get("run_name"), guessed_run_name)
+-    run_id = _first_present((intent_args or {}).get("run_id"), guessed_run_id)
+-    if isinstance(run_name, str):
+-        run_name = run_name.strip() or None
+-    if isinstance(run_id, str):
+-        run_id = run_id.strip() or None
+-    # 이전 턴에서 이어받은 metric_key로는 run 전체를 좁히지 않는다.
+-    asked_metric_key = (intent_args or {}).get("metric_key")
+-    if isinstance(asked_metric_key, str):
+-        asked_metric_key = asked_metric_key.strip() or None
+-    else:
+-        asked_metric_key = None
+-
+-    report_text = payload.report_text
+-
+-    experiment_intents = [
+-        "list_experiments",
+-        "list_recent_experiments",
+-        "get_experiment",
+-        "get_runs",
+-        "get_run_info",
+-        "list_metric_keys",
+-        "filter_runs_by_metric",
+-        "search_runs",
+-    ]
+-
+-    is_comparison = bool(
+-        re.search(r"비교|차이|versus|\bvs\b", payload.message or "", flags=re.IGNORECASE)
+-    )
+-    # 평가 질문, 또는 run이 있는데 실험 조회 intent가 아닌 질문은 상세 표 대신 모델이 답한다.
+-    route_run_qa = bool(run_name or run_id) and not is_comparison and intent != "report_qa" and (
+-        is_run_judgment_question(payload.message)
+-        or intent not in experiment_intents
++    # 직전 턴의 요청 구조와 답변 대상을 함께 넘겨, 파서가 조건의 유지·변경·해제를 판단하게 한다.
++    previous = get_last_assistant_context(db, session_id=session_id)
++    request = parse_request(payload.message, history=history, previous=previous)
++
++    # 이 요청에서 호출된 MLflow 조회/LLM 답변을 tool_calls로 남긴다(MCP 경로는 Agent 기록을 그대로 쓴다).
++    recorded_tool_calls = start_tool_call_recording()
++    result = answer_request(
++        request,
++        message=payload.message,
++        history=history,
++        report_text=payload.report_text,
++        ui_experiment=payload.experiment_name,
++        ui_metric=payload.metric_key,
++        previous=previous,
+     )
+-    if route_run_qa:
+-        answer, intent, metadata = answer_run_question(
+-            payload.message,
+-            experiment_name=experiment_name,
+-            run_name=run_name if isinstance(run_name, str) else None,
+-            run_id=run_id if isinstance(run_id, str) else None,
+-            history=history,
+-        )
+-    elif intent in experiment_intents:
+-        answer, intent, metadata = answer_experiment_question(
+-            intent=intent,
+-            message=payload.message,
+-            experiment_name=experiment_name,
+-            metric_key=metric_key,
+-            top_k=top_k,
+-            ascending=ascending,
+-            run_name=run_name if isinstance(run_name, str) else None,
+-            run_id=run_id if isinstance(run_id, str) else None,
+-            asked_metric_key=asked_metric_key,
+-        )
+-    elif intent == "report_qa":
+-        answer, intent, metadata = answer_report_question(
+-            intent=intent,
+-            message=payload.message,
+-            report_text=report_text,
+-            experiment_name=experiment_name,
+-            metric_key=metric_key,
+-            history=history,
+-        )
++    if result is None:
++        # 요청 구조로 표현할 수 없는 질문(trace 등)은 MLflow MCP 에이전트가 처리한다.
++        answer, intent, metadata = await run_with_mcp(message=payload.message, history=history)
++        metadata = {**metadata, "request": request}
+     else:
+-        answer, intent, metadata = await run_with_mcp(
+-            message=payload.message,
+-            history=history,
+-        )
++        answer, intent, metadata = result
+ 
+     if not isinstance(metadata, dict):
+         metadata = {}
+-    # 후속 턴 복원용으로 해석된 컨텍스트를 metadata에 남긴다.
+-    if experiment_name and "experiment_name" not in metadata:
+-        metadata["experiment_name"] = experiment_name
+-    if metric_key and "metric_key" not in metadata:
+-        metadata["metric_key"] = metric_key
+-    if top_k is not None and "top_k" not in metadata:
+-        metadata["top_k"] = top_k
+-    metadata["ascending"] = ascending
++    if not metadata.get("tool_calls"):
++        metadata["tool_calls"] = list(recorded_tool_calls) or ["No tool calls"]
+ 
+     append_chat_message(
+         db,
+diff --git a/backend/app/services/__init__.py b/backend/app/services/__init__.py
+index 33f98cd..26d4846 100644
+--- a/backend/app/services/__init__.py
++++ b/backend/app/services/__init__.py
+@@ -1,6 +1,6 @@
+-from backend.app.services.chat_service import classify_intent, answer_report_question, answer_experiment_question, run_with_mcp
++from backend.app.services.chat_service import answer_report_question, run_with_mcp
+ from backend.app.services.mlflow_service import mlflow_mcp_health
+ from backend.app.services.report_service import generate_report
+ from backend.app.services.repository_service import save_report
+ 
+-__all__ = ["classify_intent", "answer_report_question", "answer_experiment_question", "run_with_mcp", "mlflow_mcp_health", "generate_report", "save_report"]
++__all__ = ["answer_report_question", "run_with_mcp", "mlflow_mcp_health", "generate_report", "save_report"]
+diff --git a/backend/app/services/chat_service.py b/backend/app/services/chat_service.py
+index 862cdfe..31235df 100644
+--- a/backend/app/services/chat_service.py
++++ b/backend/app/services/chat_service.py
+@@ -1,45 +1,23 @@
+ import json
+ import re
+ from datetime import datetime, timedelta
+-from typing import Any, Dict, Tuple, Union
++from typing import Any
+ 
+ from openai import OpenAI
+ from agents import Agent, MultiProvider, Runner, RunConfig
+ from agents.mcp import MCPServerManager
+ 
+ from backend.app.config import settings
+-from backend.app.schemas import ChatMessage, ExpDisplayRow, RunDisplayRow, split_run_start_time
++from backend.app.schemas import ChatMessage, ExpDisplayRow, split_run_start_time
+ from backend.app.services.mlflow_service import (
+-    list_experiment_names,
+-    list_recent_experiment_names,
+-    list_run_metrics,
+-    find_runs,
++    list_recent_experiments,
+     get_experiment,
+-    get_runs,
+     create_mlflow_mcp_server,
+     extract_tool_calls,
++    record_tool_call,
+ )
+ 
+-ALLOWED_INTENTS = {
+-    "list_experiments",
+-    "list_recent_experiments",
+-    "list_metric_keys",
+-    "get_experiment",
+-    "get_runs",
+-    "get_run_info",
+-    "search_runs",
+-    "report_qa",
+-    "mlflow_mcp",
+-}
+-ALLOWED_INTENT_ARGUMENT_KEYS = frozenset(
+-    {"experiment_name", "metric_key", "top_k", "ascending", "run_name", "run_id"}
+-)
+ DEFAULT_INTENT = "mlflow_mcp"
+-MAX_EXPERIMENT_PREVIEW = 20
+-MAX_RUNS_PREVIEW = 20
+-MAX_RECENT_EXPERIMENTS = 5
+-MAX_METRIC_KEYS_PREVIEW = 30
+-MAX_FILTER_RUNS_PREVIEW = 20
+ 
+ # Qwen 등 reasoning 모델이 붙이는 사고 과정 블록
+ _THINK_BLOCK_RE = re.compile(r"<think>[\s\S]*?</think>", re.IGNORECASE)
+@@ -50,160 +28,21 @@ def strip_think_tags(text: str | None) -> str:
+     cleaned = _THINK_BLOCK_RE.sub("", text or "")
+     return cleaned.strip()
+ 
+-INTENT_PARSING_PROMPT = (
+-    "당신은 MLflow 실험 QA 시스템의 Query Parser이다.\n"
+-    "사용자 메시지를 분석하여 '의도(intent)'와 '필요한 인자(arguments)'를 추출하라.\n"
+-    "반드시 JSON 한 줄로만 응답하라.\n\n"
+-
+-    "출력 형식:\n"
+-    "{\"intent\":\"...\", \"arguments\":{...}}\n\n"
+-
+-    "intent 후보:\n"
+-    "list_experiments, list_recent_experiments, list_metric_keys, "
+-    "get_experiment, get_runs, get_run_info, search_runs, report_qa, mlflow_mcp\n\n"
+-
+-    "=== intent 정의 ===\n"
+-    "- list_experiments: 전체 실험 목록 또는 특정 이름 기반 실험 나열\n"
+-    "- list_recent_experiments: 최근/최신 실험 조회\n"
+-    "- list_metric_keys: metric/지표 이름 목록 요청\n"
+-    "- get_experiment: 특정 실험의 상세 정보 요청. 식별자는 실험 이름이다.\n"
+-    "- get_runs: 특정 실험의 run 목록 조회 (조건 없음, run 여러 개)\n"
+-    "- get_run_info: 특정 run 하나의 상세 조회, 또는 그 run의 특정 metric 값 조회.\n"
+-    "  식별자는 run 이름 또는 32자리 hex run id.\n"
+-    "  MLflow 기본 run 이름은 adjective-noun-숫자 형태다 (예: carefree-moth-973).\n"
+-    "  사용자가 이것을 run ID라고 불러도, 정수 experiment id가 아니면 get_run_info이다.\n"
+-    "  '실험 정보를 알려줘'라도 식별자가 run 이름/run id이면 get_experiment가 아니라 get_run_info이다.\n"
+-    "  특정 metric 값만 물으면 metric_key를 포함한다. run 전체 상세/정보를 물으면 metric_key를 넣지 않는다.\n"
+-    "  학습이 잘 됐는지, 평가, 해석, 원인처럼 판단이 필요한 질문은 get_run_info가 아니다.\n"
+-    "- search_runs: 기간/metric/top_k/상태/tag 등 조건 기반 run 검색\n"
+-    "- report_qa: 보고서 내용 기반 질의응답\n"
+-    "- mlflow_mcp: 위 intent로 처리 불가능한 모든 질문.\n"
+-    "  run 성과 평가, 해석, 원인처럼 판단이 필요하면 mlflow_mcp로 두고 run_name 또는 run_id를 남긴다.\n\n"
+-
+-    "=== arguments 규칙 ===\n"
+-    "가능한 인자 키:\n"
+-    "- experiment_name: 실험 이름\n"
+-    "- run_name: run 이름 (예: carefree-moth-973). 32자리 hex가 아닌 run 식별자.\n"
+-    "- run_id: 32자리 16진수 run id. run 이름을 여기에 넣지 않는다.\n"
+-    "- metric_key: metric 이름\n"
+-    "- top_k: 상위 k개\n"
+-    "- ascending: 오름차순 정렬 여부\n"
+-
+-    "규칙:\n"
+-    "1. intent는 반드시 하나만 선택한다.\n"
+-    "2. arguments는 추출 가능한 값만 포함한다.\n"
+-    "3. 인자가 없으면 빈 객체 {} 를 반환한다.\n"
+-    "4. 자연어 조사, 조사 변형, 조사 제거 후 핵심 값만 추출한다.\n"
+-    "5. 실험 이름은 사용자가 말한 그대로 유지한다.\n"
+-    "6. 현재 질문에 인자가 없어도, 이전 대화에 명시된 experiment_name/metric_key/top_k/"
+-    "ascending/run_name/run_id가 있으면 arguments에 채운다. 이전 대화에도 없으면 추론하지 않는다.\n"
+-    "   예외: get_run_info의 metric_key는 현재 질문이 그 metric 값을 물을 때만 넣는다. "
+-    "이전 대화의 metric_key를 run 상세 질문에 복사하지 않는다.\n"
+-    "7. 절대 설명하지 말고 JSON만 출력한다.\n\n"
+-
+-    "=== 예시 ===\n"
+-
+-    "사용자: 실험 목록 보여줘\n"
+-    "{\"intent\":\"list_experiments\",\"arguments\":{}}\n\n"
+-
+-    "사용자: 최근 실험 알려줘\n"
+-    "{\"intent\":\"list_recent_experiments\",\"arguments\":{}}\n\n"
+-
+-    "사용자: yolo26_gaze tuning 실험 정보 알려줘\n"
+-    "{\"intent\":\"get_experiment\",\"arguments\":{\"experiment_name\":\"yolo26_gaze tuning\"}}\n\n"
+-
+-    "사용자: yolo26_gaze run 목록\n"
+-    "{\"intent\":\"get_runs\",\"arguments\":{\"experiment_name\":\"yolo26_gaze\",\"ascending\":false}}\n\n"
+-
+-    "사용자: run ID가 carefree-moth-973인 실험 정보를 알려줘\n"
+-    "{\"intent\":\"get_run_info\",\"arguments\":{\"run_name\":\"carefree-moth-973\"}}\n\n"
+-
+-    "사용자: Deep Learning Experiment에서 burly-kit-617 run 상세 알려줘\n"
+-    "{\"intent\":\"get_run_info\",\"arguments\":{\"experiment_name\":\"Deep Learning Experiment\",\"run_name\":\"burly-kit-617\"}}\n\n"
+-
+-    "사용자: yolo26n-hpo-20 run의 metrics/mAP50B 값은 얼마야?\n"
+-    "{\"intent\":\"get_run_info\",\"arguments\":{\"run_name\":\"yolo26n-hpo-20\",\"metric_key\":\"metrics/mAP50B\"}}\n\n"
+-
+-    "사용자: yolo26n-hpo-20 run 학습이 잘 된 편이야?\n"
+-    "{\"intent\":\"mlflow_mcp\",\"arguments\":{\"run_name\":\"yolo26n-hpo-20\"}}\n\n"
+-
+-    "사용자: metrics.metrics/mAP50B가 높은 run top 5 보여줘\n"
+-    "{\"intent\":\"search_runs\",\"arguments\":{\"metric_key\":\"metrics.metrics/mAP50B\",\"top_k\":5}}\n\n"
+-
+-    "사용자: 보고서 기반으로 다음 실험을 제안해줘\n"
+-    "{\"intent\":\"report_qa\",\"arguments\":{}}\n\n"
+-
+-    "이전 대화에 실험명 yolo26_gaze가 있고 현재 질문만 'metric key 알려줘'인 경우:\n"
+-    "{\"intent\":\"list_metric_keys\",\"arguments\":{\"experiment_name\":\"yolo26_gaze\"}}\n"
+-)
+-
+-SEARCH_RUNS_FILTER_PARSING_PROMPT = (
+-    "당신은 MLflow run 검색 필터 추출기(Query Parser)이다.\n"
+-    "사용자 메시지에서 run 검색에 쓰일 '기간/상태/실험자/태그' 조건만 추출하라.\n"
+-    "반드시 JSON 한 줄로만 응답하라.\n\n"
+-
+-    "출력 형식:\n"
+-    "{\"recent_days\":null,\"status\":null,\"user\":null,\"tag_key\":null,\"tag_value\":null}\n\n"
+-
+-    "=== 필드 정의 ===\n"
+-    "- recent_days: 정수. '최근 N일', '지난 N일', 'last N days' 등 기간 조건의 N.\n"
+-    "  기간 조건이 없으면 null.\n"
+-    "- status: MLflow run 상태. 아래 중 하나 또는 null.\n"
+-    "  RUNNING | FINISHED | FAILED | KILLED\n"
+-    "  한국어/영어 예: running/실행중, finished/완료, failed/실패, killed/중단\n"
+-    "- user: 실험자(MLflow user) 식별자 문자열. '실험자', '사용자', '유저', 'user' 뒤 값.\n"
+-    "  없으면 null.\n"
+-    "- tag_key, tag_value: MLflow 태그 key/value 쌍. '태그 key=value', 'tag key: value' 등.\n"
+-    "  둘 다 있을 때만 채우고, 하나만 있으면 둘 다 null.\n\n"
+-
+-    "=== 규칙 ===\n"
+-    "1. metric_key, top_k, experiment_name, 정렬(ascending)은 추출하지 않는다.\n"
+-    "2. 메시지에 명시된 정보만 추출하고, 추론·가정하지 않는다.\n"
+-    "3. 조건이 없는 필드는 반드시 null이다 (빈 문자열 \"\" 사용 금지).\n"
+-    "4. status는 반드시 대문자 enum(RUNNING, FINISHED, FAILED, KILLED)만 사용한다.\n"
+-    "5. user, tag_key, tag_value는 사용자가 말한 값을 그대로 유지한다.\n"
+-    "6. 절대 설명하지 말고 JSON만 출력한다.\n\n"
+-
+-    "=== 예시 ===\n"
+-
+-    "사용자: 최근 7일 finished run 보여줘\n"
+-    "{\"recent_days\":7,\"status\":\"FINISHED\",\"user\":null,\"tag_key\":null,\"tag_value\":null}\n\n"
+-
+-    "사용자: 실험자 alice가 실행한 failed runs\n"
+-    "{\"recent_days\":null,\"status\":\"FAILED\",\"user\":\"alice\",\"tag_key\":null,\"tag_value\":null}\n\n"
+-
+-    "사용자: 태그 env=prod 인 run 목록\n"
+-    "{\"recent_days\":null,\"status\":null,\"user\":null,\"tag_key\":\"env\",\"tag_value\":\"prod\"}\n\n"
+-
+-    "사용자: 최근 3일 동안 사용자 bob이 돌린 running run, 태그 stage=train\n"
+-    "{\"recent_days\":3,\"status\":\"RUNNING\",\"user\":\"bob\",\"tag_key\":\"stage\",\"tag_value\":\"train\"}\n\n"
+-
+-    "사용자: mAP top 5\n"
+-    "{\"recent_days\":null,\"status\":null,\"user\":null,\"tag_key\":null,\"tag_value\":null}\n\n"
+-)
+ 
+ REPORT_QA_SYSTEM_PROMPT = (
+     "당신은 실험 리포트 Q&A 어시스턴트다.\n"
+     "아래 규칙을 반드시 지켜라:\n"
+-    "1) 제공된 report_text만 근거로 답한다.\n"
+-    "2) 근거가 없으면 반드시 '리포트에 근거 없음'이라고 답한다.\n"
+-    "3) 사용자가 '핵심 결론', '요약', '한눈에', '정리' 등을 요청하면 "
++    "1) 제공된 report_text만 근거로 답한다. 리포트에 없는 수치·날짜·run을 만들지 않는다.\n"
++    "2) 질문 대상이 리포트에 있으면 리포트에 적힌 값과 문장으로 답한다. "
++    "표현이 조금 달라도(예: '최근 run 두 개', '최고 run') 같은 대상을 가리키면 그 내용을 쓴다.\n"
++    "3) 질문 대상이 리포트에 전혀 없을 때만 '리포트에 근거 없음'이라고 답한다. "
++    "일부만 있으면 있는 부분으로 답하고 없는 부분만 '리포트에 근거 없음'이라고 밝힌다.\n"
++    "4) 사용자가 '핵심 결론', '요약', '한눈에', '정리' 등을 요청하면 "
+     "리포트의 핵심 결론을 3~5줄로 요약해 답한다.\n"
+-    "4) 요약 시에는 핵심 성능 결과, 주요 차이/원인, 다음 액션(튜닝 제안)을 우선 포함한다.\n"
+-    "5) 이전 대화가 있으면 후속 질문의 지시어(그거/약점도/다시 등)를 맥락에 맞게 해석하되, "
++    "5) 요약 시에는 핵심 성능 결과, 주요 차이/원인, 다음 액션(튜닝 제안)을 우선 포함한다.\n"
++    "6) 이전 대화가 있으면 후속 질문의 지시어(그거/약점도/다시 등)를 맥락에 맞게 해석하되, "
+     "여전히 report_text만 근거로 답한다.\n"
+-    "6) 불필요한 장문 설명은 피하고 한국어로 간결하게 답한다."
+-)
+-
+-RUN_QA_SYSTEM_PROMPT = (
+-    "당신은 MLflow run을 해석하는 어시스턴트다.\n"
+-    "아래 규칙을 반드시 지켜라:\n"
+-    "1) 제공된 run 상세만 근거로 답한다.\n"
+-    "2) 근거가 없으면 'run 정보에 근거 없음'이라고 답한다.\n"
+-    "3) 평가·판단·해석 질문이면 결론을 먼저 말하고, 근거가 된 metric이나 parameter를 짧게 인용한다.\n"
+-    "4) run 상세 전체, 표, parameter/metric 목록을 다시 출력하지 않는다.\n"
+-    "5) 이전 대화에 같은 표가 있어도 표를 반복하지 말고 질문에만 답한다.\n"
+-    "6) 한국어로 간결하게 답한다."
++    "7) 불필요한 장문 설명은 피하고 한국어로 간결하게 답한다."
+ )
+ 
+ 
+@@ -274,18 +113,6 @@ def _format_history_for_intent(
+     return "\n".join(lines)
+ 
+ 
+-def _build_intent_user_content(message: str, history: list[ChatMessage] | None) -> str:
+-    history_text = _format_history_for_intent(history)
+-    if not history_text:
+-        return message
+-    return (
+-        "이전 대화(참고용):\n"
+-        f"{history_text}\n\n"
+-        "현재 질문:\n"
+-        f"{message}"
+-    )
+-
+-
+ def _history_to_openai_messages(
+     history: list[ChatMessage] | None,
+ ) -> list[dict[str, str]]:
+@@ -301,147 +128,15 @@ def _history_to_openai_messages(
+     return messages
+ 
+ 
+-def classify_intent(
+-    message: str,
+-    history: list[ChatMessage] | None = None,
+-) -> Tuple[str, Dict[str, Any]]:
+-    # hinted = _heuristic_intent(message)
+-    # if hinted is not None:
+-    #     return hinted
+-
+-    completion = _client().chat.completions.create(
+-        model=settings.chat_model,
+-        temperature=0,
+-        messages=[
+-            {"role": "system", "content": INTENT_PARSING_PROMPT},
+-            {"role": "user", "content": _build_intent_user_content(message, history)},
+-        ],
+-    )
+-    raw = strip_think_tags(completion.choices[0].message.content or "")
+-
+-    # gemma4 raw 형식: {"intent":"...", "arguments":{...}}
+-    # qwen3.6 raw 형식: '<think>\n\n</think>\n\n{"intent":"list_experiments","arguments":{}}'
+-    match = re.search(r"\{.*\}", raw, re.DOTALL)
+-
+-    if not match:
+-        raise ValueError("No JSON found in LLM output")
+-
+-    json_str = match.group(0)
+-
+-    data = json.loads(json_str)
+-    intent = data.get("intent")
+-    arguments = data.get("arguments", {})
+-
+-    return intent, arguments
+-
+-
+-def _format_preview_list(items: list[str], limit: int) -> tuple[str, str]:
+-    preview = "\n".join(f"- {item}" for item in items[:limit])
+-    suffix = f"\n(너무 길어 {limit}개만 표시)" if len(items) > limit else ""
+-    return preview, suffix
+-
+-
+-def _format_run_display_markdown(experiment_name: str, total: int, rows: list[RunDisplayRow]) -> str:
+-    """챗봇 답변용 마크다운 표(Parameters 열은 생략, 상세는 metadata.run_display_rows)."""
+-    if not rows:
+-        return f"`{experiment_name}`에 조회된 run이 없습니다."
+-    lines = [
+-        f"`{experiment_name}` run **{total}개** (미리보기 **{len(rows)}개**)",
+-        "",
+-        "| Name | Score | Status | Date | Time |",
+-        "|------|-------|--------|------|------|",
+-    ]
+-    for row in rows:
+-        d = row.model_dump(by_alias=True)
+-        score = d["Score"]
+-        score_s = f"{score:.4f}" if score is not None else "-"
+-        name = str(d["Name"]).replace("|", "\\|")
+-        lines.append(f"| {name} | {score_s} | {d['Status']} | {d['Date']} | {d['Time']} |")
+-    return "\n".join(lines)
+-
+-
+-_ALLOWED_RUN_STATUSES = frozenset({"RUNNING", "FINISHED", "FAILED", "KILLED"})
+-
+-
+-def _empty_search_runs_filters() -> dict[str, object]:
+-    return {
+-        "recent_days": None,
+-        "status": None,
+-        "user": None,
+-        "tag_key": None,
+-        "tag_value": None,
+-    }
+-
+-def _parse_search_runs_filters_from_llm_raw(raw: str) -> dict[str, object]:
+-    text = (raw or "").strip()
+-    if not text:
+-        return _empty_search_runs_filters()
+-
+-    match = re.search(r"\{.*\}", text, re.DOTALL)
+-    if not match:
+-        return _empty_search_runs_filters()
+-
+-    parsed = json.loads(match.group(0))
+-    if not isinstance(parsed, dict):
+-        return _empty_search_runs_filters()
+-        
+-    # LLM JSON을 dict로 정규화
+-    out = _empty_search_runs_filters()
+-
+-    recent_days = parsed.get("recent_days")
+-    if isinstance(recent_days, int) and recent_days > 0:
+-        out["recent_days"] = recent_days
+-    elif isinstance(recent_days, str) and recent_days.strip().isdigit():
+-        days = int(recent_days.strip())
+-        if days > 0:
+-            out["recent_days"] = days
+-
+-    status = parsed.get("status")
+-    if isinstance(status, str) and status.strip():
+-        normalized = status.strip().upper()
+-        if normalized in _ALLOWED_RUN_STATUSES:
+-            out["status"] = normalized
+-
+-    user = parsed.get("user")
+-    if isinstance(user, str) and user.strip():
+-        out["user"] = user.strip()
+-
+-    tag_key = parsed.get("tag_key")
+-    tag_value = parsed.get("tag_value")
+-    if (
+-        isinstance(tag_key, str)
+-        and tag_key.strip()
+-        and isinstance(tag_value, str)
+-        and tag_value.strip()
+-    ):
+-        out["tag_key"] = tag_key.strip()
+-        out["tag_value"] = tag_value.strip()
+-
+-    return out
+-
+-
+-def _parse_search_runs_query(message: str) -> dict[str, object]:
+-    """기간/상태/실험자/태그 조건을 사용자 문장에서 LLM으로 추출한다."""
+-    msg = (message or "").strip()
+-    if not msg:
+-        return _empty_search_runs_filters()
+-
+-    completion = _client().chat.completions.create(
+-        model=settings.chat_model,
+-        temperature=0,
+-        messages=[
+-            {"role": "system", "content": SEARCH_RUNS_FILTER_PARSING_PROMPT},
+-            {"role": "user", "content": msg},
+-        ],
+-    )
+-    raw = strip_think_tags(completion.choices[0].message.content or "")
+-
+-    return _parse_search_runs_filters_from_llm_raw(raw)
+-
+-
+ def _to_epoch_seconds(value: object) -> float | None:
+     if value is None:
+         return None
++    # get_runs()의 start_time은 pandas Timestamp(datetime 하위 클래스)다. 문자열 변환 없이 바로 쓴다.
++    if isinstance(value, datetime):
++        try:
++            return value.timestamp()
++        except (ValueError, OSError):
++            return None
+     if isinstance(value, (int, float)) and not isinstance(value, bool):
+         ts = float(value)
+         if ts > 1e12:
+@@ -495,62 +190,11 @@ def _apply_search_runs_filters(runs: list[dict], filters: dict[str, object]) ->
+     return filtered
+ 
+ 
+-def _format_search_filters(filters: dict[str, object], metric_key: str | None) -> str:
+-    items: list[str] = []
+-    if isinstance(filters.get("recent_days"), int):
+-        items.append(f"기간:{filters['recent_days']}일")
+-    if isinstance(filters.get("status"), str) and filters["status"]:
+-        items.append(f"상태:{filters['status']}")
+-    if isinstance(filters.get("user"), str) and filters["user"]:
+-        items.append(f"실험자:{filters['user']}")
+-    tag_key = filters.get("tag_key")
+-    tag_value = filters.get("tag_value")
+-    if isinstance(tag_key, str) and tag_key and isinstance(tag_value, str) and tag_value:
+-        items.append(f"태그:{tag_key}:{tag_value}")
+-    if isinstance(filters.get("top_k"), int):
+-        top_desc = f"top_k:{filters['top_k']}"
+-        if metric_key:
+-            top_desc += f" ({metric_key} 기준)"
+-        items.append(top_desc)
+-    if isinstance(filters.get("ascending"), bool):
+-        if filters['ascending'] == True:
+-            items.append("오름차순")
+-        else:
+-            items.append("내림차순")
+-    if not items:
+-        return "적용 필터: 없음(전체 run)"
+-    return "적용 필터: " + " | ".join(items)
+-
+-
+ # 뒤에 한국어 조사(인/의/은)가 붙어도 run 이름으로 본다. \b는 한글을 단어 문자로 봐서 경계가 안 생긴다.
+ _MLFLOW_RUN_NAME_RE = re.compile(
+     r"(?<![A-Za-z0-9_-])[A-Za-z]+(?:-[A-Za-z0-9]+)+-\d+(?![A-Za-z0-9_-])"
+ )
+ _MLFLOW_RUN_ID_RE = re.compile(r"(?<![0-9a-fA-F])[0-9a-fA-F]{32}(?![0-9a-fA-F])")
+-_RUN_LIST_RE = re.compile(r"목록|리스트|\blist\b", re.IGNORECASE)
+-_RUN_JUDGMENT_RE = re.compile(
+-    r"잘\s*됐|잘\s*된|잘된|어때|어떻게|평가|판단|해석|원인|왜|문제|개선|괜찮|좋아|나빠|부진|성공|실패|어떤\s*편",
+-    re.IGNORECASE,
+-)
+-
+-
+-def is_run_judgment_question(message: str | None) -> bool:
+-    """run 상세 조회가 아니라, 그 run에 대한 평가·해석인지 본다."""
+-    return bool(_RUN_JUDGMENT_RE.search(message or ""))
+-
+-
+-def extract_single_run_reference(message: str | None) -> tuple[str | None, str | None]:
+-    """질문에서 run 하나(run id, run name)를 뽑는다. 목록 질문이나 여러 개면 (None, None)."""
+-    text = message or ""
+-    if _RUN_LIST_RE.search(text):
+-        return None, None
+-    run_ids = _MLFLOW_RUN_ID_RE.findall(text)
+-    run_names = _MLFLOW_RUN_NAME_RE.findall(text)
+-    if len(run_ids) == 1 and not run_names:
+-        return run_ids[0], None
+-    if len(run_names) == 1 and not run_ids:
+-        return None, run_names[0]
+-    return None, None
+ 
+ 
+ def _fmt_metric_value(value: object) -> str:
+@@ -653,288 +297,73 @@ def _run_detail_metadata(records: list[dict]) -> dict:
+     }
+ 
+ 
+-def _metric_column_name(metric_key: str) -> str:
+-    key = metric_key.strip()
+-    return key if key.startswith("metrics.") else f"metrics.{key}"
+-
+-
+-def _lookup_run_metric(record: dict, metric_key: str) -> tuple[str, object] | None:
+-    """레코드에서 metric 컬럼을 찾는다. 사용자는 metrics/mAP50B처럼 prefix 없이 말한다."""
+-    column = _metric_column_name(metric_key)
+-    if column in record:
+-        return column, record[column]
+-    return None
+-
+-
+-def _format_single_metric_answer(records: list[dict], metric_key: str) -> tuple[str, str | None]:
+-    ordered = sorted(records, key=lambda r: str(r.get("start_time") or ""), reverse=True)
+-    primary = ordered[0]
+-    run_name = str(primary.get("tags.mlflow.runName") or "-")
+-    suffix = ""
+-    if len(ordered) > 1:
+-        suffix = f" 같은 이름의 run이 {len(ordered)}개라 가장 최근 run 기준입니다."
+-    found = _lookup_run_metric(primary, metric_key)
+-    if found is None:
+-        display = metric_key.strip().removeprefix("metrics.")
+-        return f"`{run_name}` run에 `{display}` metric이 없습니다.{suffix}", None
+-    column, value = found
+-    display = column.removeprefix("metrics.")
+-    return f"`{run_name}`의 `{display}`는 {_fmt_metric_value(value)}입니다.{suffix}", column
+-
+-
+-def _respond_with_run_records(
+-    records: list[dict],
+-    asked_metric_key: str | None,
+-) -> tuple[str, str, dict]:
+-    meta = _run_detail_metadata(records)
+-    asked = (asked_metric_key or "").strip()
+-    if not asked:
+-        return _format_run_detail_markdown(records), "get_run_info", meta
+-    answer, column = _format_single_metric_answer(records, asked)
+-    if column:
+-        meta["metric_key"] = column
+-    return answer, "get_run_info", meta
+-
+-
+-def _answer_get_run_info(
+-    *,
+-    experiment_name: str | None,
+-    message: str | None,
+-    run_name: str | None,
+-    run_id: str | None,
+-    asked_metric_key: str | None = None,
+-) -> tuple[str, str, dict]:
+-    guessed_id, guessed_name = extract_single_run_reference(message)
+-    resolved_id = (run_id or "").strip() or guessed_id
+-    resolved_name = (run_name or "").strip() or guessed_name
+-    label = resolved_name or resolved_id or "-"
+-    if not resolved_id and not resolved_name:
+-        return (
+-            "조회할 run 이름 또는 run ID가 없습니다. 예: carefree-moth-973",
+-            "get_run_info",
+-            {"count": 0},
+-        )
+-
+-    records = find_runs(
+-        run_name=resolved_name or None,
+-        run_id=resolved_id or None,
+-        experiment_name=experiment_name,
+-    )
+-    if not records:
+-        return (
+-            f"`{label}` run을 찾지 못했습니다.",
+-            "get_run_info",
+-            {"count": 0, "run_name": resolved_name or None, "run_id": resolved_id or None},
+-        )
+-    return _respond_with_run_records(records, asked_metric_key)
+-
+-
+-def answer_experiment_question(
+-    intent: str,
+-    experiment_name: str | None,
+-    message: str | None,
+-    metric_key: str | None,
+-    top_k: int | None,
+-    ascending: bool | None,
+-    run_name: str | None = None,
+-    run_id: str | None = None,
+-    asked_metric_key: str | None = None,
+-) -> tuple[str, str, dict]:
+-    if intent == "list_experiments":   
+-        names = list_experiment_names()
+-        if not names:
+-            return "등록된 실험이 없습니다.", intent, {"count": 0}
+-        preview, suffix = _format_preview_list(names, MAX_EXPERIMENT_PREVIEW)
+-        return f"실험 목록({len(names)}개)\n{preview}{suffix}", intent, {"count": len(names)}
+-
+-    if intent == "list_recent_experiments":
+-        names = list_recent_experiment_names(limit=MAX_RECENT_EXPERIMENTS)
+-        if not names:
+-            return "최근 실험이 없습니다.", intent, {"count": 0}
+-        return f"최근 실험({len(names)}개)\n" + "\n".join(f"- {name}" for name in names), intent, {"count": len(names)}
+-
+-    if intent == "get_run_info":
+-        return _answer_get_run_info(
+-            experiment_name=experiment_name,
+-            message=message,
+-            run_name=run_name,
+-            run_id=run_id,
+-            asked_metric_key=asked_metric_key,
+-        )
+-
+-    target_experiment = experiment_name
+-    if not target_experiment:
+-        return "조회할 실험이 없습니다.", intent, {}
+-
+-    # list_metric_keys
+-    if intent == "list_metric_keys":
+-        keys = list_run_metrics(target_experiment)
+-        if not keys:
+-            return f"{target_experiment}의 metric 키가 없습니다.", intent, {"experiment_name": target_experiment, "count": 0}
+-        preview, suffix = _format_preview_list(keys, MAX_METRIC_KEYS_PREVIEW)
+-        return (
+-            f"{target_experiment} metric 키 목록({len(keys)}개)\n{preview}{suffix}",
+-            intent,
+-            {"experiment_name": target_experiment, "count": len(keys)},
+-        )
+-
+-    # get_experiment
+-    if intent == "get_experiment":
+-        msg_run_id, msg_run_name = extract_single_run_reference(message)
+-        if msg_run_name or msg_run_id:
+-            return _answer_get_run_info(
+-                experiment_name=experiment_name,
+-                message=message,
+-                run_name=run_name or msg_run_name,
+-                run_id=run_id or msg_run_id,
+-                asked_metric_key=asked_metric_key,
++def _recent_experiments_label(order_by: str, ascending: bool, single: bool = False) -> str:
++    prefix = "가장 " if single else ""
++    if order_by == "last_update_time":
++        return "가장 오래전에 업데이트된 실험" if ascending else f"{prefix}최근 업데이트된 실험"
++    return "가장 오래된 실험" if ascending else f"{prefix}최근 실험"
++
++
++def _format_time_cell(value: object) -> str:
++    date_s, time_s = split_run_start_time(value)
++    return date_s if time_s == "-" else f"{date_s} {time_s}"
++
++
++def _answer_recent_experiments(query: dict[str, Any]) -> tuple[str, str, dict]:
++    intent = "list_recent_experiments"
++    limit = query["limit"]
++    order_by = query["order_by"]
++    ascending = query["ascending"]
++    response_mode = query["response_mode"]
++    label = _recent_experiments_label(order_by, ascending, single=limit == 1)
++    time_key = "last_update_time" if order_by == "last_update_time" else "creation_time"
++    time_label = "업데이트" if order_by == "last_update_time" else "생성"
++
++    experiments = list_recent_experiments(limit=limit, order_by=order_by, ascending=ascending)
++    metadata: dict[str, Any] = {"count": len(experiments), "recent_query": dict(query)}
++    if not experiments:
++        return f"{label}이 없습니다.", intent, metadata
++
++    names = [exp["experiment_name"] for exp in experiments]
++    metadata["experiment_names"] = names
++    if len(experiments) == 1:
++        # 후속 질문("그 실험 run 목록")이 이 실험을 이어받도록 남긴다.
++        metadata["experiment_name"] = names[0]
++
++    if response_mode == "list":
++        answer = f"{label}({len(names)}개)\n" + "\n".join(f"- {name}" for name in names)
++        return answer, intent, metadata
++
++    if response_mode == "summary":
++        if len(experiments) == 1:
++            exp = experiments[0]
++            answer = (
++                f"{label}은 `{exp['experiment_name']}`입니다. "
++                f"(ID `{exp['experiment_id']}`, {time_label} {_format_time_cell(exp.get(time_key))})"
+             )
+-        if target_experiment not in set(list_experiment_names()):
+-            matched = find_runs(run_name=target_experiment)
+-            if matched:
+-                return _respond_with_run_records(matched, asked_metric_key)
+-        experiment = get_experiment(target_experiment)
+-        if not experiment:
+-            return f"{target_experiment} 실험이 없습니다.", intent, {"experiment_name": target_experiment, "count": 0}
+-        exp_row = ExpDisplayRow.from_experiment_dict(target_experiment, experiment)
+-        return (
+-            exp_row.to_markdown(),
+-            intent,
+-            {
+-                "experiment_name": target_experiment,
+-                "experiment_display_row": exp_row.to_metadata(),
+-            },
+-        )
+-
+-    # get_runs
+-    if intent == "get_runs":
+-        runs = get_runs(target_experiment)
+-        if not runs:
+-            return f"{target_experiment} run 목록이 없습니다.", intent, {"experiment_name": target_experiment, "count": 0}
+-        rows = [
+-            RunDisplayRow.from_mlflow_raw(r, metric_key)
+-            for r in runs
+-        ]
+-        # # Score(선택 metric 기준) 내림차순; 없으면 맨 뒤로
+-        # rows = sorted(
+-        #     rows,
+-        #     key=lambda r: r.score if r.score is not None else float("-inf"),
+-        #     reverse=True,
+-        # )
+-        preview_rows = rows[:MAX_RUNS_PREVIEW]
+-        answer = _format_run_display_markdown(target_experiment, len(runs), preview_rows)
+-        return (
+-            answer,
+-            intent,
+-            {
+-                "experiment_name": target_experiment,
+-                "count": len(runs),
+-                "run_display_rows": [row.model_dump(mode="json", by_alias=True) for row in preview_rows],
+-            },
+-        )
+-
+-    # search_runs
+-    if intent == "search_runs":
+-        runs = get_runs(target_experiment)
+-        if not runs:
+-            return "조회 가능한 run이 없습니다.", intent, {"experiment_name": target_experiment, "count": 0}
+-
+-        filters = _parse_search_runs_query(message or "")
+-        filters = {**filters, "top_k": top_k, "ascending": ascending}
+-        if isinstance(top_k, int) and top_k > 0 and not metric_key:
+-            return (
+-                "top_k 검색에는 metric_key 선택이 필요합니다. metric을 선택한 뒤 다시 시도해 주세요.",
+-                intent,
+-                {"experiment_name": target_experiment, "filters": filters},
+-            )
+-        
+-        # 없는 metric_key를 입력했을 경우
+-        if metric_key not in list_run_metrics(target_experiment):
+-            return(
+-                f"{metric_key}가 없습니다. {target_experiment}의 metric 키 목록을 조회해 주세요.",
+-                intent,
+-                {"experiment_name": target_experiment, "filters": filters},
+-            )
+-        
+-        filtered_runs = _apply_search_runs_filters(runs, filters)
+-        if not filtered_runs:
+-            return (
+-                f"조건에 맞는 run이 없습니다.\n{_format_search_filters(filters, metric_key)}",
+-                intent,
+-                {"experiment_name": target_experiment, "count": 0, "filters": filters},
++            return answer, intent, metadata
++        lines = [f"{label}({len(experiments)}개)"]
++        for exp in experiments:
++            lines.append(
++                f"- `{exp['experiment_name']}` · ID `{exp['experiment_id']}` · "
++                f"{time_label} {_format_time_cell(exp.get(time_key))}"
+             )
+-
+-        rows = [RunDisplayRow.from_mlflow_raw(r, metric_key) for r in filtered_runs]
+-        if metric_key and ascending==True:
+-            rows = sorted(rows, key=lambda r: r.score if r.score is not None else float("-inf"), reverse=False)
+-        elif metric_key and ascending==False:
+-            rows = sorted(rows, key=lambda r: r.score if r.score is not None else float("-inf"), reverse=True)
+-        else:
+-            rows = sorted(rows, key=lambda r: _to_epoch_seconds(r.model_dump(by_alias=True).get("Date")) or 0.0, reverse=True)
+-
+-        if isinstance(top_k, int) and top_k > 0:
+-            rows = rows[:top_k]
+-
+-        preview_rows = rows[:MAX_RUNS_PREVIEW]
+-        filter_text = _format_search_filters(filters, metric_key)
+-        table_text = _format_run_display_markdown(target_experiment, len(rows), preview_rows)
+-        answer = f"{filter_text}\n\n{table_text}"
+-        return (
+-            answer,
+-            intent,
+-            {
+-                "experiment_name": target_experiment,
+-                "count": len(rows),
+-                "filters": filters,
+-                "run_display_rows": [row.model_dump(mode="json", by_alias=True) for row in preview_rows],
+-            },
+-        )
+-
+-    return f"지원하지 않는 실험 요청입니다: {intent}", intent, {"experiment_name": target_experiment}
+-
+-def answer_run_question(
+-    message: str,
+-    *,
+-    experiment_name: str | None,
+-    run_name: str | None,
+-    run_id: str | None,
+-    history: list[ChatMessage] | None = None,
+-) -> tuple[str, str, dict]:
+-    """run 상세를 컨텍스트로 넣고, 사용자 질문에 대한 판단만 모델이 답하게 한다."""
+-    guessed_id, guessed_name = extract_single_run_reference(message)
+-    resolved_id = (run_id or "").strip() or guessed_id
+-    resolved_name = (run_name or "").strip() or guessed_name
+-    label = resolved_name or resolved_id or "-"
+-    if not resolved_id and not resolved_name:
+-        return "판단할 run 이름 또는 run ID가 없습니다.", DEFAULT_INTENT, {"count": 0}
+-
+-    records = find_runs(
+-        run_name=resolved_name or None,
+-        run_id=resolved_id or None,
+-        experiment_name=experiment_name,
+-    )
+-    if not records:
+-        return (
+-            f"`{label}` run을 찾지 못했습니다.",
+-            DEFAULT_INTENT,
+-            {"count": 0, "run_name": resolved_name or None, "run_id": resolved_id or None},
+-        )
+-
+-    messages: list[dict[str, str]] = [
+-        {"role": "system", "content": RUN_QA_SYSTEM_PROMPT},
+-        {"role": "system", "content": "run 상세:\n" + _format_run_detail_markdown(records)},
+-        *_history_to_openai_messages(history),
+-        {"role": "user", "content": message},
+-    ]
+-    completion = _client().chat.completions.create(
+-        model=settings.chat_model,
+-        temperature=settings.chat_temperature,
+-        messages=messages,
+-    )
+-    answer = strip_think_tags(completion.choices[0].message.content or "")
+-    metadata = _run_detail_metadata(records)
+-    metadata["grounded_on_run"] = True
+-    return answer, DEFAULT_INTENT, metadata
++        return "\n".join(lines), intent, metadata
++
++    # detail: 시간순으로 고른 실험마다 get_experiment 상세를 붙인다.
++    sections: list[str] = []
++    display_rows: list[dict] = []
++    for exp in experiments:
++        detail = get_experiment(exp["experiment_name"])
++        row = ExpDisplayRow.from_experiment_dict(exp["experiment_name"], detail)
++        sections.append(row.to_markdown())
++        display_rows.append(row.to_metadata())
++    header = f"{label}" if len(experiments) == 1 else f"{label}({len(experiments)}개)"
++    if len(display_rows) == 1:
++        metadata["experiment_display_row"] = display_rows[0]
++    else:
++        metadata["experiment_display_rows"] = display_rows
++    return header + " 상세\n\n" + "\n\n---\n\n".join(sections), intent, metadata
+ 
+ 
+ def answer_report_question(
+@@ -944,6 +373,7 @@ def answer_report_question(
+     experiment_name: str | None,
+     metric_key: str | None,
+     history: list[ChatMessage] | None = None,
++    request_scope: str | None = None,
+ ) -> tuple[str, str, dict]:
+     if not report_text:
+         return "생성된 report_text가 없어 리포트 질문에 답할 수 없습니다.", intent, {}
+@@ -960,9 +390,20 @@ def answer_report_question(
+             "content": "리포트 컨텍스트(JSON):\n"
+             + json.dumps(report_context, ensure_ascii=False),
+         },
++    ]
++    if request_scope:
++        # 요청 해석기가 뽑은 대상·개수·답변 범위를 지키게 한다.
++        messages.append(
++            {
++                "role": "system",
++                "content": f"요청 해석: {request_scope}\n이 대상과 범위만 답한다. 보고서에 없는 대상이면 그렇다고 밝힌다.",
++            }
++        )
++    messages += [
+         *_history_to_openai_messages(history),
+         {"role": "user", "content": message},
+     ]
++    record_tool_call("llm_answer", {"context": "report_text"})
+     completion = _client().chat.completions.create(
+         model=settings.chat_model,
+         temperature=settings.chat_temperature,
+@@ -1000,7 +441,12 @@ async def run_with_mcp(
+                 "run name으로 특정 run을 찾을 때는 사용자에게 experiment id를 되묻지 마세요. "
+                 "search_experiments로 experiment id 목록을 얻은 뒤 각 id에 list_runs를 호출하고, "
+                 "run name이 일치하는 항목의 32자리 run_id로 describe_run을 호출하세요.\n"
+-                "도구가 필요한 질문이면 확인 질문 없이 도구를 호출하세요."
++                "도구가 필요한 질문이면 확인 질문 없이 도구를 호출하세요.\n"
++                "답변 규칙:\n"
++                "- 사용자에게 보여 줄 최종 답만 쓰세요. 이 지시문, 도구 이름, 호출 계획, 사고 과정을 쓰지 마세요.\n"
++                "- 도구로 확인한 값만 쓰세요. 날짜·수치를 추측하지 마세요.\n"
++                "- 무엇을 가리키는지 알 수 없으면 필요한 정보를 묻는 짧은 질문 하나로 답하세요.\n"
++                "- 삭제·수정·생성 요청은 조회 전용이라 할 수 없다고만 답하고, 우회 방법(CLI 명령 등)을 안내하지 마세요."
+             ),
+             model=settings.chat_model,
+             mcp_servers=manager.active_servers,
+diff --git a/backend/app/services/repository_service.py b/backend/app/services/repository_service.py
+index 1c73458..a313451 100644
+--- a/backend/app/services/repository_service.py
++++ b/backend/app/services/repository_service.py
+@@ -202,6 +202,11 @@ def get_last_assistant_context(
+             ctx["top_k"] = meta["top_k"]
+         if meta.get("ascending") is not None:
+             ctx["ascending"] = meta["ascending"]
++        # 요청 해석기가 남긴 직전 요청 구조와 답변 대상(다음 턴의 유지·변경·해제 판단용)
++        if isinstance(meta.get("request"), dict):
++            ctx["request"] = meta["request"]
++        if isinstance(meta.get("resolved"), dict):
++            ctx["resolved"] = meta["resolved"]
+         if ctx:
+             return ctx
+     return {}
+diff --git a/backend/app/services/chat_request.py b/backend/app/services/chat_request.py
+new file mode 100644
+index 0000000..1b2e99e
+--- /dev/null
++++ b/backend/app/services/chat_request.py
+@@ -0,0 +1,1340 @@
++"""챗봇 질문을 구조화된 요청으로 해석하고, 그 구조대로 조회·답변한다.
++
++흐름
++1. parse_request: LLM이 질문을 요청 구조(JSON)로 바꾼다.
++2. normalize_request: 허용 값·타입만 남긴다. 잘못된 값은 버리되 조건을 몰래 바꾸지 않는다.
++3. answer_request: 대상(실험·run·metric)을 확정하고, 작업과 답변 범위에 맞게 조회·답변한다.
++   - 값의 출처(질문, 이전 대화, UI 선택, 기본값)를 구분해 답변 첫 줄에 적용 조건으로 보여 준다.
++   - 필요한 정보가 없으면 확인 질문을, 지원하지 않는 작업이면 지원 범위를 안내한다.
++   - 위 구조로 표현할 수 없는 질문(target=other)은 None을 돌려주고 라우터가 MCP로 보낸다.
++"""
++
++from __future__ import annotations
++
++import json
++import math
++import re
++import statistics
++from typing import Any
++
++from backend.app.config import settings
++from backend.app.schemas import ChatMessage, ExpDisplayRow, RunDisplayRow, split_run_start_time
++from backend.app.services import chat_service as cs
++from backend.app.services.mlflow_service import (
++    find_runs,
++    get_experiment,
++    get_runs,
++    list_experiment_names,
++    list_recent_experiments,
++    list_run_metrics,
++    record_tool_call,
++)
++
++TARGETS = frozenset({"experiment", "run", "metric_key", "report", "other"})
++ACTIONS = frozenset({"list", "count", "lookup", "compare", "summarize", "evaluate", "unsupported"})
++EXPERIMENT_PICKS = frozenset({"latest", "oldest", "latest_updated"})
++SORT_FIELDS = frozenset({"metric", "time", "update_time"})
++ORDERS = frozenset({"desc", "asc"})
++OUTPUTS = frozenset({"names", "count", "value", "brief", "table", "full"})
++FIELDS = frozenset({"params", "metrics", "status", "time", "id"})
++RUN_STATUSES = frozenset({"RUNNING", "FINISHED", "FAILED", "KILLED"})
++UNRESOLVED_ITEMS = frozenset({"experiment", "run", "metric"})
++CONTEXT_FIELDS = frozenset({"experiment", "runs", "metric", "filters", "sort_by", "order", "limit"})
++CLEARED_LABELS = {
++    "experiment": "실험",
++    "runs": "대상 run",
++    "metric": "metric",
++    "filters": "조건(기간·상태 등)",
++    "sort_by": "정렬",
++    "limit": "개수",
++}
++
++DEFAULT_RECENT_EXPERIMENTS = 5
++MAX_EXPERIMENT_ROWS = 20
++MAX_RUN_ROWS = 20
++MAX_RUN_NAMES = 50
++DEFAULT_COMPARE_RUNS = 2
++MAX_COMPARE_RUNS = 5
++MAX_COMPARE_METRICS = 12
++MAX_EVAL_METRICS = 8
++
++_RUN_ID_RE = re.compile(r"^[0-9a-fA-F]{32}$")
++# 낮을수록 좋은 metric으로 보는 이름 조각
++_LOWER_IS_BETTER = ("loss", "error", "err", "mae", "mse", "rmse", "wer", "cer", "perplexity")
++
++REQUEST_PARSING_PROMPT = (
++    "당신은 MLflow 실험 QA 챗봇의 요청 해석기다.\n"
++    "사용자 질문을 실행할 수 있는 요청 구조로 바꿔 JSON 한 줄로만 출력한다. 설명하지 않는다.\n\n"
++
++    "=== 필드 ===\n"
++    "- target: 무엇에 대한 요청인가.\n"
++    "  experiment(실험) | run | metric_key(metric 이름 목록) | report(첨부된 보고서 내용) | "
++    "other(위 넷으로 표현할 수 없음: trace, 모델 레지스트리, 아티팩트 파일 내용 등)\n"
++    "- action: 무엇을 하는가.\n"
++    "  list(나열) | count(개수) | lookup(정해진 대상의 정보·값 조회) | compare(둘 이상 비교, 차이) | "
++    "summarize(핵심 요약) | evaluate(잘 됐는지 평가·판단·원인 해석) | "
++    "unsupported(삭제·수정·생성·학습 실행처럼 조회가 아닌 작업)\n"
++    "- experiment: 실험 이름. 사용자가 말한 그대로.\n"
++    "- experiment_pick: 실험 이름 없이 시간으로 실험을 고를 때. "
++    "latest(가장 최근 생성) | oldest(가장 오래된) | latest_updated(가장 최근 업데이트)\n"
++    "- runs: 지목한 run 이름 또는 32자리 run id 목록. 예: brave-owl-12, trial_7, exp3-hpo-05. "
++    "실험 이름은 넣지 않는다.\n"
++    "- metric: 기준 metric 이름. 사용자가 말한 그대로(예: f1, val_loss, metrics/mAP50-95B).\n"
++    "- filters: run 선택 조건 객체. recent_days(최근 N일 정수), status(RUNNING|FINISHED|FAILED|KILLED), "
++    "user(실험자), tag_key와 tag_value(둘 다 있을 때만)\n"
++    "  실패=FAILED, 완료/성공=FINISHED, 실행중=RUNNING, 중단=KILLED\n"
++    "- sort_by: metric(metric 값 순) | time(생성·시작 시각 순) | update_time(최근 업데이트 순, 실험 전용)\n"
++    "- order: desc | asc. '높은/좋은/상위/최근/최신'=desc, '낮은/하위/오래된'=asc. "
++    "loss·error가 '가장 좋은'이면 asc.\n"
++    "- limit: 사용자가 말한 결과 개수. '하나/한 개/제일·가장 ~한 것'=1, 'N개/top N/상위 N'=N, "
++    "'전체/모두/다'=\"all\". 말하지 않았으면 생략.\n"
++    "- pick: \"both_ends\" — '최고와 최저'처럼 양 끝 두 개를 고를 때만.\n"
++    "- output: 답변 범위. names(이름만) | count(개수만) | value(값 하나·몇 개) | brief(짧게, 한 줄) | "
++    "table(목록을 표로) | full(상세 정보 전체)\n"
++    "  '몇 개'=count, '이름만'=names, '값/얼마/몇이야'=value, '상세/자세히/정보 전체'=full, '요약/핵심/간단히'=brief\n"
++    "- fields: 특정 항목만 원할 때. params(파라미터·설정) | metrics | status | time | id\n"
++    "- inherited: 현재 질문에는 없고 이전 대화에서 이어받은 필드 이름 목록.\n"
++    "- cleared: 이전 대화의 조건 중 현재 질문이 해제한 필드 이름 목록.\n"
++    "- unresolved: 답하는 데 꼭 필요한데 질문과 이전 대화 어디에도 없는 항목. experiment | run | metric\n"
++    "- unsupported_reason: action=unsupported일 때 짧은 이유.\n"
++    "inherited·cleared에 쓰는 필드 이름: experiment, runs, metric, filters, sort_by, order, limit\n\n"
++
++    "=== 규칙 ===\n"
++    "1. 질문에 있는 조건(대상, 개수, 기간, 상태, 정렬, 답변 범위)을 하나도 버리지 않는다.\n"
++    "2. 질문에 없는 값을 만들지 않는다. limit, metric, sort_by, filters를 추측하지 않는다.\n"
++    "3. limit은 개수, sort_by는 기준이다. '최근 run 3개'는 sort_by=time, limit=3이다(metric 순위 아님).\n"
++    "4. '가장 최근 실험의 run 중 ~'처럼 시간으로 실험을 고른 뒤 run을 물으면 target=run과 experiment_pick을 함께 쓴다.\n"
++    "5. 'metric이 가장 높은 run의 파라미터'처럼 순위로 run을 고른 뒤 정보를 물으면 "
++    "action=lookup, sort_by=metric, limit=1, fields를 함께 쓴다.\n"
++    "6. 이전 대화 이어받기\n"
++    "   - '그 실험/그 run/거기/그 중에'처럼 가리키거나 대상 없이 이어 물으면 직전 대상(experiment, runs)을 "
++    "이어받고 inherited에 적는다. 직전 요청 해석과 직전 답변의 대상을 참고한다.\n"
++    "   - 조건(filters, metric, sort_by, order, limit)은 '그 중에/거기서'처럼 직전 결과를 좁힐 때만 이어받는다. "
++    "같은 종류의 새 조건이면 바꾼다(예: 실패 → 완료).\n"
++    "   - '전체/모두/조건 빼고'는 이전 조건을 해제하고 cleared에 적는다.\n"
++    "   - 직전 대상이 여러 개라 무엇을 가리키는지 모르면 unresolved에 넣는다.\n"
++    "7. 이전 대화가 없는데 '그 run'처럼 가리키는 대상이 없으면 unresolved에 넣는다. "
++    "run을 고르는 데 실험이나 기준 metric이 필요한데 없으면 unresolved에 넣는다.\n"
++    "8. '보고서/리포트 기준·기반'이면 target=report다. action, limit, output은 그대로 표현한다.\n"
++    "9. 값이 없는 키는 생략하고 JSON 한 줄만 출력한다.\n\n"
++
++    "=== 예시 ===\n"
++    "사용자: 실험 리스트 줘\n"
++    "{\"target\":\"experiment\",\"action\":\"list\",\"output\":\"names\"}\n\n"
++    "사용자: 요즘 만든 실험 뭐 있어?\n"
++    "{\"target\":\"experiment\",\"action\":\"list\",\"sort_by\":\"time\",\"order\":\"desc\",\"output\":\"names\"}\n\n"
++    "사용자: 제일 최근에 만든 실험 딱 하나만\n"
++    "{\"target\":\"experiment\",\"action\":\"list\",\"sort_by\":\"time\",\"order\":\"desc\",\"limit\":1,\"output\":\"brief\"}\n\n"
++    "사용자: 최근 수정된 실험 2개 자세히\n"
++    "{\"target\":\"experiment\",\"action\":\"list\",\"sort_by\":\"update_time\",\"order\":\"desc\",\"limit\":2,\"output\":\"full\"}\n\n"
++    "사용자: resnet-ablation 실험 정보\n"
++    "{\"target\":\"experiment\",\"action\":\"lookup\",\"experiment\":\"resnet-ablation\",\"output\":\"full\"}\n\n"
++    "사용자: resnet-ablation에 run 몇 개 있어?\n"
++    "{\"target\":\"run\",\"action\":\"count\",\"experiment\":\"resnet-ablation\",\"output\":\"count\"}\n\n"
++    "사용자: resnet-ablation metric 뭐 있어?\n"
++    "{\"target\":\"metric_key\",\"action\":\"list\",\"experiment\":\"resnet-ablation\"}\n\n"
++    "사용자: resnet-ablation에서 f1 상위 4개\n"
++    "{\"target\":\"run\",\"action\":\"list\",\"experiment\":\"resnet-ablation\",\"metric\":\"f1\",\"sort_by\":\"metric\",\"order\":\"desc\",\"limit\":4,\"output\":\"table\"}\n\n"
++    "사용자: resnet-ablation에서 val_loss 제일 낮은 run\n"
++    "{\"target\":\"run\",\"action\":\"list\",\"experiment\":\"resnet-ablation\",\"metric\":\"val_loss\",\"sort_by\":\"metric\",\"order\":\"asc\",\"limit\":1,\"output\":\"brief\"}\n\n"
++    "사용자: resnet-ablation에서 지난 2주 동안 alice가 돌린 중단된 run 이름만\n"
++    "{\"target\":\"run\",\"action\":\"list\",\"experiment\":\"resnet-ablation\",\"filters\":{\"recent_days\":14,\"status\":\"KILLED\",\"user\":\"alice\"},\"output\":\"names\"}\n\n"
++    "사용자: resnet-ablation 최신 run 다섯 개\n"
++    "{\"target\":\"run\",\"action\":\"list\",\"experiment\":\"resnet-ablation\",\"sort_by\":\"time\",\"order\":\"desc\",\"limit\":5,\"output\":\"table\"}\n\n"
++    "사용자: 제일 최근 실험에서 f1 가장 좋은 run의 설정값만\n"
++    "{\"target\":\"run\",\"action\":\"lookup\",\"experiment_pick\":\"latest\",\"metric\":\"f1\",\"sort_by\":\"metric\",\"order\":\"desc\",\"limit\":1,\"fields\":[\"params\"]}\n\n"
++    "사용자: brave-owl-12 run val_loss 얼마야?\n"
++    "{\"target\":\"run\",\"action\":\"lookup\",\"runs\":[\"brave-owl-12\"],\"metric\":\"val_loss\",\"output\":\"value\"}\n\n"
++    "사용자: brave-owl-12 run 전체 정보\n"
++    "{\"target\":\"run\",\"action\":\"lookup\",\"runs\":[\"brave-owl-12\"],\"output\":\"full\"}\n\n"
++    "사용자: brave-owl-12 간단히 정리해줘\n"
++    "{\"target\":\"run\",\"action\":\"summarize\",\"runs\":[\"brave-owl-12\"],\"output\":\"brief\"}\n\n"
++    "사용자: brave-owl-12 결과 괜찮은 거야?\n"
++    "{\"target\":\"run\",\"action\":\"evaluate\",\"runs\":[\"brave-owl-12\"]}\n\n"
++    "사용자: brave-owl-12랑 calm-fox-3 f1 비교\n"
++    "{\"target\":\"run\",\"action\":\"compare\",\"runs\":[\"brave-owl-12\",\"calm-fox-3\"],\"metric\":\"f1\",\"output\":\"value\"}\n\n"
++    "사용자: resnet-ablation에서 f1 최고 run이랑 최저 run 차이 보여줘\n"
++    "{\"target\":\"run\",\"action\":\"compare\",\"experiment\":\"resnet-ablation\",\"metric\":\"f1\",\"sort_by\":\"metric\",\"order\":\"desc\",\"pick\":\"both_ends\"}\n\n"
++    "사용자: 리포트 기준으로 제일 좋은 run 요약해줘\n"
++    "{\"target\":\"report\",\"action\":\"summarize\",\"limit\":1,\"output\":\"brief\"}\n\n"
++    "사용자(새 대화): 이 run 왜 이렇게 낮아?\n"
++    "{\"target\":\"run\",\"action\":\"evaluate\",\"unresolved\":[\"run\"]}\n\n"
++    "사용자(새 대화): 정확도 제일 높은 run\n"
++    "{\"target\":\"run\",\"action\":\"list\",\"metric\":\"정확도\",\"sort_by\":\"metric\",\"order\":\"desc\",\"limit\":1,\"unresolved\":[\"experiment\"]}\n\n"
++    "사용자: brave-owl-12 run 지워줘\n"
++    "{\"target\":\"run\",\"action\":\"unsupported\",\"runs\":[\"brave-owl-12\"],\"unsupported_reason\":\"run 삭제\"}\n\n"
++    "사용자: 어제 trace 중 에러 난 것\n"
++    "{\"target\":\"other\",\"action\":\"list\"}\n\n"
++    "직전 요청 해석: {\"target\":\"run\",\"action\":\"list\",\"experiment\":\"resnet-ablation\",\"metric\":\"f1\",\"sort_by\":\"metric\",\"order\":\"desc\",\"limit\":4}\n"
++    "사용자: 다 보여줘\n"
++    "{\"target\":\"run\",\"action\":\"list\",\"experiment\":\"resnet-ablation\",\"limit\":\"all\",\"output\":\"table\",\"inherited\":[\"experiment\"],\"cleared\":[\"metric\",\"sort_by\",\"order\",\"limit\"]}\n\n"
++    "직전 요청 해석: {\"target\":\"run\",\"action\":\"list\",\"experiment\":\"resnet-ablation\",\"filters\":{\"status\":\"KILLED\"}}\n"
++    "사용자: 성공한 건?\n"
++    "{\"target\":\"run\",\"action\":\"list\",\"experiment\":\"resnet-ablation\",\"filters\":{\"status\":\"FINISHED\"},\"inherited\":[\"experiment\"]}\n\n"
++    "직전 답변의 대상: run=[brave-owl-12]\n"
++    "사용자: 그거 파라미터는?\n"
++    "{\"target\":\"run\",\"action\":\"lookup\",\"runs\":[\"brave-owl-12\"],\"fields\":[\"params\"],\"inherited\":[\"runs\"]}\n"
++)
++
++RUN_SUMMARY_PROMPT = (
++    "당신은 MLflow run을 요약하는 어시스턴트다.\n"
++    "1) 제공된 run 상세만 근거로 한다. 없는 값은 만들지 않는다.\n"
++    "2) 3줄 이내로 답한다: 무엇을 어떻게 학습했는지(모델·주요 설정), 결과(주요 metric 값), 눈에 띄는 점.\n"
++    "3) 표나 파라미터 전체 목록을 다시 출력하지 않는다. system metric은 질문하지 않으면 언급하지 않는다.\n"
++    "4) 한국어로 답한다."
++)
++
++RUN_EVALUATION_PROMPT = (
++    "당신은 MLflow run을 평가하는 어시스턴트다.\n"
++    "1) 제공된 run 상세와 '같은 실험 비교 기준' 표만 근거로 한다. 없는 값은 만들지 않는다.\n"
++    "2) 판단은 같은 실험의 다른 run 대비 위치(순위, 최고·중앙값과의 차이)를 기준으로 한다. "
++    "절대적인 좋고 나쁨은 근거가 없으면 단정하지 않는다.\n"
++    "3) 검증·테스트 metric(val_*, test_*, metrics/*)을 학습 metric(train_*, batch_*)보다 우선한다. "
++    "학습 metric만 좋고 검증 metric이 낮으면 그 차이를 밝힌다.\n"
++    "4) 최고와 최저의 차이가 작으면(예: 정확도 1%p 미만) 순위 차이가 의미 있게 크지 않다고 밝힌다.\n"
++    "5) 첫 문장에 결론을 쓴다. 이어서 근거 metric 2~3개를 이름·값·순위(예: val_accuracy 77.81, 3개 중 2위)로 "
++    "정확히 인용한다. metric 이름을 바꿔 부르지 않는다.\n"
++    "6) 비교할 run이 1개뿐이면 비교 근거가 없다고 밝히고 train/val 차이 같은 내부 근거만 쓴다.\n"
++    "7) 개선 제안은 근거가 있을 때만 한 줄로 덧붙인다.\n"
++    "8) run 상세 표나 파라미터 목록을 다시 출력하지 않는다. 한국어로 간결하게 답한다."
++)
++
++
++# ── 1. 해석 ─────────────────────────────────────────────
++
++
++def _format_previous_context(previous: dict[str, Any] | None) -> str:
++    if not previous:
++        return ""
++    lines: list[str] = []
++    request = previous.get("request")
++    if isinstance(request, dict) and request:
++        compact = {k: v for k, v in request.items() if v not in (None, [], {}, False)}
++        lines.append("직전 요청 해석: " + json.dumps(compact, ensure_ascii=False))
++    resolved = previous.get("resolved") or {}
++    bits: list[str] = []
++    if resolved.get("experiment"):
++        bits.append(f"실험={resolved['experiment']}")
++    if resolved.get("runs"):
++        bits.append("run=[" + ", ".join(resolved["runs"]) + "]")
++    if resolved.get("metric"):
++        bits.append(f"metric={resolved['metric']}")
++    if bits:
++        lines.append("직전 답변의 대상: " + ", ".join(bits))
++    return "\n".join(lines)
++
++
++def build_parser_input(
++    message: str,
++    history: list[ChatMessage] | None,
++    previous: dict[str, Any] | None,
++) -> str:
++    parts: list[str] = []
++    history_text = cs._format_history_for_intent(history)
++    if history_text:
++        parts.append("이전 대화(참고용):\n" + history_text)
++    previous_text = _format_previous_context(previous)
++    if previous_text:
++        parts.append(previous_text)
++    if not parts:
++        return message
++    parts.append("현재 질문:\n" + message)
++    return "\n\n".join(parts)
++
++
++def parse_request(
++    message: str,
++    history: list[ChatMessage] | None = None,
++    previous: dict[str, Any] | None = None,
++) -> dict[str, Any]:
++    """질문을 요청 구조로 해석한다. 해석에 실패하면 target=other(MCP 처리)로 둔다."""
++    completion = cs._client().chat.completions.create(
++        model=settings.chat_model,
++        temperature=0,
++        messages=[
++            {"role": "system", "content": REQUEST_PARSING_PROMPT},
++            {"role": "user", "content": build_parser_input(message, history, previous)},
++        ],
++    )
++    raw = cs.strip_think_tags(completion.choices[0].message.content or "")
++    match = re.search(r"\{.*\}", raw, re.DOTALL)
++    data: Any = None
++    if match:
++        try:
++            data = json.loads(match.group(0))
++        except json.JSONDecodeError:
++            data = None
++    request = normalize_request(data)
++    if data is None:
++        request["parse_error"] = raw[:200]
++    return request
++
++
++def _clean_text(value: object) -> str | None:
++    if isinstance(value, str):
++        text = value.strip()
++        return text or None
++    if isinstance(value, (int, float)) and not isinstance(value, bool):
++        return str(value)
++    return None
++
++
++def _positive_int(value: object) -> int | None:
++    if isinstance(value, bool):
++        return None
++    if isinstance(value, int):
++        return value if value > 0 else None
++    if isinstance(value, float) and value.is_integer() and value > 0:
++        return int(value)
++    if isinstance(value, str) and value.strip().isdigit():
++        number = int(value.strip())
++        return number if number > 0 else None
++    return None
++
++
++def _enum(value: object, allowed: frozenset[str], *, upper: bool = False) -> str | None:
++    text = _clean_text(value)
++    if text is None:
++        return None
++    text = text.upper() if upper else text.lower()
++    return text if text in allowed else None
++
++
++def _string_list(value: object) -> list[str]:
++    if isinstance(value, str):
++        value = [value]
++    if not isinstance(value, list):
++        return []
++    out: list[str] = []
++    for item in value:
++        text = _clean_text(item)
++        if text and text not in out:
++            out.append(text)
++    return out
++
++
++def _enum_list(value: object, allowed: frozenset[str]) -> list[str]:
++    return [item for item in (s.lower() for s in _string_list(value)) if item in allowed]
++
++
++def empty_request() -> dict[str, Any]:
++    return {
++        "target": "other",
++        "action": "list",
++        "experiment": None,
++        "experiment_pick": None,
++        "runs": [],
++        "metric": None,
++        "filters": {},
++        "sort_by": None,
++        "order": None,
++        "limit": None,
++        "all": False,
++        "pick": None,
++        "output": None,
++        "fields": [],
++        "inherited": [],
++        "cleared": [],
++        "unresolved": [],
++        "unsupported_reason": None,
++    }
++
++
++def normalize_request(raw: object) -> dict[str, Any]:
++    """파서 출력을 허용 값과 타입으로 정리한다."""
++    req = empty_request()
++    if not isinstance(raw, dict):
++        return req
++
++    req["experiment"] = _clean_text(raw.get("experiment"))
++    req["experiment_pick"] = _enum(raw.get("experiment_pick"), EXPERIMENT_PICKS)
++    req["runs"] = _string_list(raw.get("runs"))
++    req["metric"] = _clean_text(raw.get("metric"))
++
++    filters: dict[str, Any] = {}
++    raw_filters = raw.get("filters") if isinstance(raw.get("filters"), dict) else {}
++    days = _positive_int(raw_filters.get("recent_days"))
++    if days:
++        filters["recent_days"] = days
++    status = _enum(raw_filters.get("status"), RUN_STATUSES, upper=True)
++    if status:
++        filters["status"] = status
++    user = _clean_text(raw_filters.get("user"))
++    if user:
++        filters["user"] = user
++    tag_key = _clean_text(raw_filters.get("tag_key"))
++    tag_value = _clean_text(raw_filters.get("tag_value"))
++    if tag_key and tag_value:
++        filters["tag_key"] = tag_key
++        filters["tag_value"] = tag_value
++    req["filters"] = filters
++
++    req["sort_by"] = _enum(raw.get("sort_by"), SORT_FIELDS)
++    req["order"] = _enum(raw.get("order"), ORDERS)
++    limit_raw = raw.get("limit")
++    if isinstance(limit_raw, str) and limit_raw.strip().lower() in {"all", "전체"}:
++        req["all"] = True
++    else:
++        req["limit"] = _positive_int(limit_raw)
++    req["pick"] = "both_ends" if _clean_text(raw.get("pick")) == "both_ends" else None
++    req["output"] = _enum(raw.get("output"), OUTPUTS)
++    req["fields"] = _enum_list(raw.get("fields"), FIELDS)
++    req["inherited"] = _enum_list(raw.get("inherited"), CONTEXT_FIELDS)
++    req["cleared"] = _enum_list(raw.get("cleared"), CONTEXT_FIELDS)
++    req["unresolved"] = _enum_list(raw.get("unresolved"), UNRESOLVED_ITEMS)
++    req["unsupported_reason"] = _clean_text(raw.get("unsupported_reason"))
++
++    target = _enum(raw.get("target"), TARGETS)
++    if target is None:
++        target = "run" if req["runs"] else "other"
++    req["target"] = target
++    action = _enum(raw.get("action"), ACTIONS)
++    if action is None:
++        action = "lookup" if req["runs"] else "list"
++    req["action"] = action
++    return req
++
++
++# ── 2. 공통 도우미 ───────────────────────────────────────
++
++
++def _finite(value: object) -> float | None:
++    if value is None or isinstance(value, bool):
++        return None
++    try:
++        number = float(value)  # type: ignore[arg-type]
++    except (TypeError, ValueError):
++        return None
++    return number if math.isfinite(number) else None
++
++
++def _epoch(value: object) -> float | None:
++    """start_time(ms, ISO 문자열, datetime/Timestamp)을 epoch 초로 바꾼다."""
++    return cs._to_epoch_seconds(value)
++
++
++def _run_name(record: dict) -> str:
++    return str(record.get("tags.mlflow.runName") or record.get("run_id") or "-")
++
++
++def _start_text(record: dict) -> str:
++    date_s, time_s = split_run_start_time(record.get("start_time"))
++    return date_s if time_s == "-" else f"{date_s} {time_s}"
++
++
++def _metric_name(column: str) -> str:
++    return column.removeprefix("metrics.")
++
++
++def _model_metric_columns(record: dict) -> list[str]:
++    return sorted(
++        key
++        for key, value in record.items()
++        if key.startswith("metrics.")
++        and not key.startswith("metrics.system/")
++        and _finite(value) is not None
++    )
++
++
++def resolve_metric_column(metric: str, columns: list[str]) -> tuple[str | None, list[str]]:
++    """사용자가 말한 metric을 실제 컬럼(metrics.xxx)으로 바꾼다.
++
++    접두사 유무, 대소문자, 'mAP50B' → 'metrics/mAP50B'처럼 경로 끝 일치, 유일한 부분 일치를 허용한다.
++    반환: (컬럼 또는 None, 후보 목록). 후보가 여럿이면 컬럼은 None이다.
++    """
++    wanted = metric.strip().removeprefix("metrics.")
++    names = {_metric_name(c): c for c in columns if c.startswith("metrics.")}
++    if wanted in names:
++        return names[wanted], []
++    lowered = wanted.lower()
++    exact = [c for n, c in names.items() if n.lower() == lowered]
++    if len(exact) == 1:
++        return exact[0], []
++    tail = [c for n, c in names.items() if n.lower().split("/")[-1] == lowered]
++    if len(tail) == 1:
++        return tail[0], []
++    if len(tail) > 1:
++        return None, tail
++    model_names = {n: c for n, c in names.items() if not n.startswith("system/")}
++    partial = [c for n, c in model_names.items() if lowered in n.lower()]
++    if len(partial) == 1:
++        return partial[0], []
++    return None, partial
++
++
++def _metric_choices_text(columns: list[str], limit: int = 15) -> str:
++    names = [_metric_name(c) for c in columns if not _metric_name(c).startswith("system/")]
++    shown = ", ".join(f"`{n}`" for n in names[:limit])
++    more = f" 외 {len(names) - limit}개" if len(names) > limit else ""
++    return shown + more if shown else "(없음)"
++
++
++def _source_suffix(source: str | None) -> str:
++    return "" if source in (None, "질문") else f"({source})"
++
++
++class _Context:
++    """요청 하나를 처리하는 동안 확정한 값과 출처를 모은다."""
++
++    def __init__(
++        self,
++        req: dict[str, Any],
++        *,
++        message: str,
++        history: list[ChatMessage] | None,
++        report_text: str | None,
++        ui_experiment: str | None,
++        ui_metric: str | None,
++        previous: dict[str, Any] | None,
++    ) -> None:
++        self.req = req
++        self.message = message
++        self.history = history
++        self.report_text = report_text
++        self.ui_experiment = (ui_experiment or "").strip() or None
++        self.ui_metric = (ui_metric or "").strip() or None
++        self.previous = previous or {}
++        self.sources: dict[str, str] = {}
++        self.defaults: list[str] = []
++        self.resolved: dict[str, Any] = {}
++        self._experiment_names: list[str] | None = None
++
++    def source_of(self, field: str) -> str:
++        return "이전 대화" if field in self.req["inherited"] else "질문"
++
++    def experiment_names(self) -> list[str]:
++        if self._experiment_names is None:
++            self._experiment_names = list_experiment_names()
++        return self._experiment_names
++
++    def match_experiment(self, name: str) -> str | None:
++        names = self.experiment_names()
++        if name in names:
++            return name
++        folded = name.casefold()
++        matches = [n for n in names if n.casefold() == folded]
++        return matches[0] if len(matches) == 1 else None
++
++    def metadata(self, **extra: Any) -> dict[str, Any]:
++        meta: dict[str, Any] = {
++            "request": self.req,
++            "resolved": self.resolved,
++            "applied": {"sources": self.sources, "defaults": self.defaults},
++        }
++        if self.resolved.get("experiment"):
++            meta["experiment_name"] = self.resolved["experiment"]
++        if self.resolved.get("metric_column"):
++            meta["metric_key"] = self.resolved["metric_column"]
++        meta.update(extra)
++        return meta
++
++
++# ── 3. 실행 ─────────────────────────────────────────────
++
++
++def answer_request(
++    req: dict[str, Any],
++    *,
++    message: str,
++    history: list[ChatMessage] | None = None,
++    report_text: str | None = None,
++    ui_experiment: str | None = None,
++    ui_metric: str | None = None,
++    previous: dict[str, Any] | None = None,
++) -> tuple[str, str, dict] | None:
++    """요청 구조대로 답한다. MCP로 넘겨야 하면 None."""
++    ctx = _Context(
++        dict(req),
++        message=message,
++        history=history,
++        report_text=report_text,
++        ui_experiment=ui_experiment,
++        ui_metric=ui_metric,
++        previous=previous,
++    )
++    req = ctx.req
++    if req["action"] == "unsupported":
++        return _answer_unsupported(ctx)
++    if req["target"] == "report":
++        return _answer_report(ctx)
++    if req["target"] == "other":
++        return None
++
++    _fill_inherited_targets(ctx)
++    _fix_misplaced_targets(ctx)
++    _fill_runs_from_message(ctx)
++
++    # 가리키는 run이 없고 순위로 고를 수도 없으면, 실험을 묻기 전에 run부터 확인한다.
++    if (
++        req["target"] == "run"
++        and not req["runs"]
++        and "run" in req["unresolved"]
++        and not req["sort_by"]
++        and not req["pick"]
++    ):
++        return _clarify(ctx, ["run"])
++
++    error = _resolve_experiment(ctx)
++    if error:
++        return error
++
++    if req["target"] == "metric_key":
++        return _answer_metric_keys(ctx)
++    if req["target"] == "experiment":
++        return _answer_experiments(ctx)
++    if req["runs"]:
++        return _answer_named_runs(ctx)
++    return _answer_ranked_runs(ctx)
++
++
++def _fill_inherited_targets(ctx: _Context) -> None:
++    """파서가 이어받았다고 했지만 값을 비운 대상은 직전 답변의 대상으로 채운다."""
++    req = ctx.req
++    resolved = ctx.previous.get("resolved") or {}
++    if "experiment" in req["inherited"] and not req["experiment"] and resolved.get("experiment"):
++        req["experiment"] = resolved["experiment"]
++    if "runs" in req["inherited"] and not req["runs"] and resolved.get("runs"):
++        req["runs"] = list(resolved["runs"])
++
++
++def _fix_misplaced_targets(ctx: _Context) -> None:
++    """실험 이름이 runs에 들어갔거나, run 이름이 experiment에 들어간 경우를 바로잡는다."""
++    req = ctx.req
++    if req["runs"]:
++        kept: list[str] = []
++        for name in req["runs"]:
++            matched = ctx.match_experiment(name)
++            if matched and not req["experiment"]:
++                req["experiment"] = matched
++            elif not matched:
++                kept.append(name)
++        req["runs"] = kept
++    if req["experiment"] and not ctx.match_experiment(req["experiment"]):
++        if find_runs(run_name=req["experiment"]):
++            req["runs"] = [req["experiment"], *req["runs"]]
++            req["experiment"] = None
++            if req["target"] == "experiment":
++                req["target"] = "run"
++
++
++def _fill_runs_from_message(ctx: _Context) -> None:
++    """파서가 run 이름을 놓친 경우 질문에서 run 이름·ID 형태를 찾아 보완한다."""
++    req = ctx.req
++    if req["runs"] or req["target"] != "run" or req["action"] not in {"lookup", "compare", "summarize", "evaluate"}:
++        return
++    found = cs._MLFLOW_RUN_ID_RE.findall(ctx.message) + cs._MLFLOW_RUN_NAME_RE.findall(ctx.message)
++    req["runs"] = [name for name in dict.fromkeys(found) if not ctx.match_experiment(name)]
++
++
++def _needs_metric(req: dict[str, Any]) -> bool:
++    return req["sort_by"] == "metric" or req["pick"] == "both_ends"
++
++
++def _resolve_experiment(ctx: _Context) -> tuple[str, str, dict] | None:
++    """실험을 확정한다. 실패하면 사용자에게 보낼 답변을 돌려준다."""
++    req = ctx.req
++    if req["experiment"]:
++        matched = ctx.match_experiment(req["experiment"])
++        if not matched:
++            names = ctx.experiment_names()
++            listing = ", ".join(f"`{n}`" for n in names[:MAX_EXPERIMENT_ROWS])
++            return (
++                f"`{req['experiment']}` 실험을 찾지 못했습니다. 등록된 실험: {listing}",
++                "clarify",
++                ctx.metadata(),
++            )
++        ctx.resolved["experiment"] = matched
++        ctx.sources["experiment"] = ctx.source_of("experiment")
++        return None
++
++    if req["experiment_pick"] and req["target"] != "experiment":
++        order_by = "last_update_time" if req["experiment_pick"] == "latest_updated" else "creation_time"
++        ascending = req["experiment_pick"] == "oldest"
++        picked = list_recent_experiments(limit=1, order_by=order_by, ascending=ascending)
++        if not picked:
++            return "등록된 실험이 없습니다.", "clarify", ctx.metadata()
++        ctx.resolved["experiment"] = picked[0]["experiment_name"]
++        ctx.sources["experiment"] = {
++            "latest": "가장 최근 실험",
++            "oldest": "가장 오래된 실험",
++            "latest_updated": "가장 최근 업데이트된 실험",
++        }[req["experiment_pick"]]
++        return None
++
++    needs_experiment = req["target"] == "metric_key" or (req["target"] == "run" and not req["runs"])
++    if not needs_experiment:
++        return None
++    if "experiment" not in req["unresolved"]:
++        previous_experiment = (ctx.previous.get("resolved") or {}).get("experiment")
++        if previous_experiment and ctx.match_experiment(previous_experiment):
++            ctx.resolved["experiment"] = previous_experiment
++            ctx.sources["experiment"] = "이전 대화"
++            return None
++    if ctx.ui_experiment and ctx.match_experiment(ctx.ui_experiment):
++        ctx.resolved["experiment"] = ctx.match_experiment(ctx.ui_experiment)
++        ctx.sources["experiment"] = "UI 선택"
++        return None
++    missing = ["experiment"]
++    if "metric" in req["unresolved"] or (_needs_metric(req) and not req["metric"] and not ctx.ui_metric):
++        missing.append("metric")
++    return _clarify(ctx, missing)
++
++
++def _resolve_metric_for(ctx: _Context, columns: list[str]) -> tuple[str | None, tuple[str, str, dict] | None]:
++    """요청 metric을 컬럼으로 확정한다. 필요 없으면 (None, None)."""
++    req = ctx.req
++    metric = req["metric"]
++    source = ctx.source_of("metric")
++    if not metric and _needs_metric(req) and "metric" not in req["unresolved"] and ctx.ui_metric:
++        metric, source = ctx.ui_metric, "UI 선택"
++    if not metric:
++        if _needs_metric(req) or "metric" in req["unresolved"]:
++            return None, _clarify(ctx, ["metric"], metric_columns=columns)
++        return None, None
++    column, candidates = resolve_metric_column(metric, columns)
++    if column is None:
++        scope = f"`{ctx.resolved.get('experiment')}`" if ctx.resolved.get("experiment") else "대상 run"
++        if candidates:
++            text = (
++                f"`{metric}`에 해당하는 metric이 여러 개입니다: {_metric_choices_text(candidates)}. "
++                "하나를 골라 다시 물어봐 주세요."
++            )
++        else:
++            text = (
++                f"{scope}에 `{metric}` metric이 없습니다. "
++                f"사용할 수 있는 metric: {_metric_choices_text(columns)}"
++            )
++        return None, (text, "clarify", ctx.metadata())
++    ctx.resolved["metric"] = _metric_name(column)
++    ctx.resolved["metric_column"] = column
++    ctx.sources["metric"] = source
++    return column, None
++
++
++# ── 3-1. 지원 범위 밖, 보고서, 확인 질문 ─────────────────────
++
++
++def _answer_unsupported(ctx: _Context) -> tuple[str, str, dict]:
++    reason = ctx.req["unsupported_reason"]
++    label = f"요청하신 작업({reason})" if reason else "요청하신 작업"
++    answer = (
++        f"{label}은 이 챗봇에서 할 수 없습니다. 이 챗봇은 MLflow를 조회만 합니다.\n"
++        "할 수 있는 것: 실험·run 목록과 상세 조회, 조건 검색, run 비교·요약·평가, 첨부 보고서 질의응답"
++    )
++    return answer, "unsupported", ctx.metadata()
++
++
++_ACTION_LABELS = {
++    "list": "조회",
++    "count": "개수",
++    "lookup": "조회",
++    "compare": "비교",
++    "summarize": "요약",
++    "evaluate": "평가",
++}
++
++
++def _scope_text(req: dict[str, Any]) -> str:
++    bits = [f"작업={_ACTION_LABELS.get(req['action'], req['action'])}"]
++    if req["runs"]:
++        bits.append("run=" + ", ".join(req["runs"]))
++    if req["metric"]:
++        bits.append(f"metric={req['metric']}")
++    if req["sort_by"] == "time":
++        bits.append("기준=최근 순" if req["order"] != "asc" else "기준=오래된 순")
++    elif req["sort_by"] == "metric":
++        bits.append("기준=metric 순위")
++    if req["limit"]:
++        bits.append(f"개수={req['limit']}")
++    if req["output"]:
++        bits.append(f"답변 범위={req['output']}")
++    return ", ".join(bits)
++
++
++def _answer_report(ctx: _Context) -> tuple[str, str, dict]:
++    if not ctx.report_text:
++        answer = (
++            "첨부된 보고서가 없어 보고서 기준으로 답할 수 없습니다. "
++            "보고서를 생성하거나 선택한 뒤 다시 물어봐 주세요."
++        )
++        return answer, "report_qa", ctx.metadata()
++    answer, intent, meta = cs.answer_report_question(
++        intent="report_qa",
++        message=ctx.message,
++        report_text=ctx.report_text,
++        experiment_name=None,
++        metric_key=None,
++        history=ctx.history,
++        request_scope=_scope_text(ctx.req),
++    )
++    return answer, intent, ctx.metadata(**{k: v for k, v in meta.items() if v is not None})
++
++
++def _understood_text(req: dict[str, Any]) -> str:
++    target = {"run": "run", "experiment": "실험", "metric_key": "metric 목록"}.get(req["target"], req["target"])
++    parts = [target]
++    if req["metric"]:
++        parts.append(f"`{req['metric']}` 기준")
++    if req["sort_by"] == "metric":
++        parts.append("낮은 순" if req["order"] == "asc" else "높은 순")
++    if req["limit"]:
++        parts.append(f"{req['limit']}개")
++    parts.append(_ACTION_LABELS.get(req["action"], ""))
++    return " ".join(p for p in parts if p)
++
++
++def _clarify(
++    ctx: _Context,
++    missing: list[str],
++    *,
++    metric_columns: list[str] | None = None,
++) -> tuple[str, str, dict]:
++    lines = [f"요청({_understood_text(ctx.req)})을 처리하려면 다음을 알려주세요."]
++    experiment = ctx.resolved.get("experiment")
++    for item in missing:
++        if item == "experiment":
++            names = ctx.experiment_names()
++            listing = ", ".join(f"`{n}`" for n in names[:MAX_EXPERIMENT_ROWS])
++            lines.append(f"- 어느 실험에서 찾을까요? 실험: {listing}")
++        elif item == "metric":
++            columns = metric_columns
++            if columns is None and experiment:
++                columns = list_run_metrics(experiment)
++            choices = f" `{experiment}`의 metric: {_metric_choices_text(columns)}" if columns else ""
++            lines.append(f"- 어떤 metric 기준으로 볼까요?{choices}")
++        elif item == "run":
++            example = ""
++            if experiment:
++                runs = sorted(get_runs(experiment), key=lambda r: _epoch(r.get("start_time")) or 0, reverse=True)
++                if runs:
++                    example = " `" + experiment + "`의 최근 run: " + ", ".join(
++                        f"`{_run_name(r)}`" for r in runs[:5]
++                    )
++            lines.append(f"- 어떤 run인가요? run 이름이나 32자리 run ID로 알려주세요.{example}")
++    return "\n".join(lines), "clarify", ctx.metadata(missing=missing)
++
++
++# ── 3-2. metric 목록, 실험 ───────────────────────────────
++
++
++def _answer_metric_keys(ctx: _Context) -> tuple[str, str, dict]:
++    experiment = ctx.resolved["experiment"]
++    columns = list_run_metrics(experiment)
++    if not columns:
++        return f"`{experiment}`에 기록된 metric이 없습니다.", "list_metric_keys", ctx.metadata(count=0)
++    model = [_metric_name(c) for c in columns if not _metric_name(c).startswith("system/")]
++    system = [_metric_name(c) for c in columns if _metric_name(c).startswith("system/")]
++    lines = [f"`{experiment}` metric({len(model)}개)"]
++    lines.extend(f"- {name}" for name in model)
++    if system:
++        lines.append(f"(system metric {len(system)}개는 생략)")
++    return _join(_conditions_line(ctx), "\n".join(lines)), "list_metric_keys", ctx.metadata(count=len(model))
++
++
++def _answer_experiments(ctx: _Context) -> tuple[str, str, dict]:
++    req = ctx.req
++    names = ctx.experiment_names()
++
++    if req["action"] == "count":
++        return f"등록된 실험은 **{len(names)}개**입니다.", "list_experiments", ctx.metadata(count=len(names))
++
++    if req["experiment"]:
++        experiment = ctx.resolved["experiment"]
++        detail = get_experiment(experiment)
++        row = ExpDisplayRow.from_experiment_dict(experiment, detail)
++        return (
++            row.to_markdown(),
++            "get_experiment",
++            ctx.metadata(experiment_display_row=row.to_metadata()),
++        )
++
++    time_sorted = req["sort_by"] in {"time", "update_time"} or req["experiment_pick"] is not None
++    if time_sorted:
++        order_by = "last_update_time" if (
++            req["sort_by"] == "update_time" or req["experiment_pick"] == "latest_updated"
++        ) else "creation_time"
++        ascending = req["order"] == "asc" or req["experiment_pick"] == "oldest"
++        limit = req["limit"]
++        if req["experiment_pick"] and not limit:
++            limit = 1
++        if req["all"]:
++            limit = len(names)
++        defaulted = False
++        if not limit:
++            limit = DEFAULT_RECENT_EXPERIMENTS
++            defaulted = True
++            ctx.defaults.append(f"개수 {limit}개")
++        output = req["output"]
++        if output in (None, "value"):
++            output = "brief" if limit == 1 else "names"
++        if req["action"] == "lookup" and output not in ("names", "brief"):
++            output = "full"
++        response_mode = {"names": "list", "brief": "summary", "table": "summary", "full": "detail"}.get(output, "list")
++        query = {
++            "limit": min(limit, MAX_EXPERIMENT_ROWS if response_mode != "detail" else 5),
++            "order_by": order_by,
++            "ascending": ascending,
++            "response_mode": response_mode,
++        }
++        answer, intent, meta = cs._answer_recent_experiments(query)
++        if meta.get("experiment_name"):
++            ctx.resolved["experiment"] = meta["experiment_name"]
++        if defaulted:
++            answer += f"\n\n(개수를 지정하지 않아 기본 {limit}개를 보여 드렸습니다.)"
++        meta.pop("experiment_name", None)
++        return answer, intent, ctx.metadata(**meta)
++
++    shown = names if req["all"] or not req["limit"] else names[: req["limit"]]
++    preview = shown[:MAX_EXPERIMENT_ROWS]
++    lines = [f"실험 목록({len(names)}개)" if len(shown) == len(names) else f"실험 {len(shown)}개 (전체 {len(names)}개)"]
++    lines.extend(f"- {name}" for name in preview)
++    if len(shown) > len(preview):
++        lines.append(f"(너무 길어 {len(preview)}개만 표시)")
++    return "\n".join(lines), "list_experiments", ctx.metadata(count=len(names))
++
++
++# ── 3-3. 조건으로 고르는 run ─────────────────────────────
++
++
++def _join(header: str, body: str, notes: list[str] | None = None) -> str:
++    parts = [p for p in (header, body) if p]
++    text = "\n\n".join(parts)
++    if notes:
++        text += "\n\n" + "\n".join(f"※ {n}" for n in notes)
++    return text
++
++
++def _conditions_line(ctx: _Context, extra: list[str] | None = None) -> str:
++    req = ctx.req
++    items: list[str] = []
++    experiment = ctx.resolved.get("experiment")
++    if experiment:
++        items.append(f"실험 `{experiment}`{_source_suffix(ctx.sources.get('experiment'))}")
++    filters = req["filters"]
++    filter_source = _source_suffix(ctx.source_of("filters"))
++    if filters.get("recent_days"):
++        items.append(f"기간 최근 {filters['recent_days']}일{filter_source}")
++    if filters.get("status"):
++        items.append(f"상태 {filters['status']}{filter_source}")
++    if filters.get("user"):
++        items.append(f"실험자 {filters['user']}{filter_source}")
++    if filters.get("tag_key"):
++        items.append(f"태그 {filters['tag_key']}={filters['tag_value']}{filter_source}")
++    items.extend(extra or [])
++    cleared = [CLEARED_LABELS[f] for f in req["cleared"] if f in CLEARED_LABELS]
++    if cleared:
++        items.append("이전 " + "·".join(dict.fromkeys(cleared)) + " 해제")
++    return "적용 조건: " + " · ".join(items) if items else ""
++
++
++def _select_runs(
++    ctx: _Context,
++    records: list[dict],
++    metric_column: str | None,
++) -> tuple[list[dict], int, list[str], list[str]]:
++    """필터·정렬·개수를 적용한다. 반환: (선택 run, 조건에 맞는 run 수, 조건 설명, 참고 사항)."""
++    req = ctx.req
++    filtered = cs._apply_search_runs_filters(records, req["filters"])
++    notes: list[str] = []
++    extra: list[str] = []
++
++    if req["sort_by"] == "metric" or req["pick"] == "both_ends":
++        scored = [r for r in filtered if _finite(r.get(metric_column)) is not None]
++        missing = len(filtered) - len(scored)
++        if missing:
++            notes.append(f"`{_metric_name(metric_column)}` 값이 없는 run {missing}개는 순위에서 제외했습니다.")
++        descending = req["order"] != "asc"
++        scored.sort(key=lambda r: _finite(r.get(metric_column)) or 0.0, reverse=descending)
++        ordered = scored
++        direction = "높은 순" if descending else "낮은 순"
++        extra.append(f"정렬 `{_metric_name(metric_column)}` {direction}{_source_suffix(ctx.sources.get('metric'))}")
++    else:
++        descending = req["order"] != "asc"
++        ordered = sorted(filtered, key=lambda r: _epoch(r.get("start_time")) or 0.0, reverse=descending)
++        if req["sort_by"] == "time":
++            extra.append("정렬 시작 시각 " + ("최신순" if descending else "오래된순"))
++
++    matched = len(ordered)
++    if req["pick"] == "both_ends":
++        selected = [ordered[0], ordered[-1]] if len(ordered) >= 2 else ordered
++        extra.append("최고·최저 run")
++    elif req["limit"]:
++        selected = ordered[: req["limit"]]
++        extra.append(f"{req['limit']}개")
++    else:
++        selected = ordered
++    return selected, matched, extra, notes
++
++
++def _answer_ranked_runs(
++    ctx: _Context,
++    records: list[dict] | None = None,
++    scope_text: str | None = None,
++    notes: list[str] | None = None,
++) -> tuple[str, str, dict]:
++    """조건(필터·정렬·개수)으로 run을 고른 뒤 요청한 작업을 한다.
++
++    records가 없으면 확정된 실험의 run 전체에서, 있으면 그 run들(예: 직전 결과) 안에서 고른다.
++    """
++    req = ctx.req
++    notes = list(notes or [])
++    if records is None:
++        experiment = ctx.resolved["experiment"]
++        records = get_runs(experiment)
++        for record in records:
++            record.setdefault("experiment_name", experiment)
++        if not records:
++            return f"`{experiment}`에 run이 없습니다.", "get_runs", ctx.metadata(count=0)
++
++    columns = sorted({k for r in records for k in r if k.startswith("metrics.")})
++    metric_column, error = _resolve_metric_for(ctx, columns)
++    if error:
++        return error
++
++    picks_one_run = req["action"] in {"lookup", "summarize", "evaluate"}
++    if req["action"] == "compare" and not req["limit"] and req["pick"] != "both_ends":
++        req["limit"] = DEFAULT_COMPARE_RUNS
++        ctx.defaults.append(f"비교 개수 {DEFAULT_COMPARE_RUNS}개")
++    if picks_one_run and not req["limit"]:
++        req["limit"] = 1
++
++    selected, matched, extra, select_notes = _select_runs(ctx, records, metric_column)
++    notes += select_notes
++    if scope_text:
++        extra.insert(0, scope_text)
++    header = _conditions_line(ctx, extra)
++    intent = "search_runs" if (req["filters"] or req["sort_by"] or req["limit"]) else "get_runs"
++
++    if not selected:
++        return _join(header, "조건에 맞는 run이 없습니다.", notes), intent, ctx.metadata(count=0)
++
++    if req["action"] == "count":
++        body = f"조건에 맞는 run은 **{matched}개**입니다."
++        return _join(header, body, notes), intent, ctx.metadata(count=matched)
++
++    if req["action"] == "compare":
++        return _answer_compare(ctx, selected[:MAX_COMPARE_RUNS], metric_column, header, notes)
++
++    if picks_one_run:
++        ctx.resolved["runs"] = [_run_name(r) for r in selected]
++        return _answer_run_records(ctx, selected, metric_column, header, notes)
++
++    return _answer_run_list(ctx, selected, matched, metric_column, header, notes, intent)
++
++
++def _answer_run_list(
++    ctx: _Context,
++    selected: list[dict],
++    matched: int,
++    metric_column: str | None,
++    header: str,
++    notes: list[str],
++    intent: str,
++) -> tuple[str, str, dict]:
++    req = ctx.req
++    output = req["output"]
++    ctx.resolved["runs"] = [_run_name(r) for r in selected][:MAX_RUN_NAMES]
++    rows = [RunDisplayRow.from_mlflow_raw(r, metric_column) for r in selected[:MAX_RUN_ROWS]]
++    meta_extra: dict[str, Any] = {
++        "count": matched,
++        "run_display_rows": [row.model_dump(mode="json", by_alias=True) for row in rows],
++    }
++    if req["limit"] and metric_column:
++        meta_extra["top_k"] = req["limit"]
++
++    count_text = f"{matched}개 중 {len(selected)}개" if len(selected) != matched else f"{matched}개"
++
++    if output == "names":
++        names = [_run_name(r) for r in selected[:MAX_RUN_NAMES]]
++        body = f"run {count_text}\n" + "\n".join(f"- {n}" for n in names)
++        if len(selected) > MAX_RUN_NAMES:
++            body += f"\n(너무 길어 {MAX_RUN_NAMES}개만 표시)"
++        return _join(header, body, notes), intent, ctx.metadata(**meta_extra)
++
++    if len(selected) == 1 and output in (None, "brief", "value"):
++        run = selected[0]
++        if metric_column:
++            body = (
++                f"`{_run_name(run)}` — `{_metric_name(metric_column)}` "
++                f"{cs._fmt_metric_value(run.get(metric_column))} ({run.get('status', '-')}, {_start_text(run)})"
++            )
++        else:
++            body = f"`{_run_name(run)}` ({run.get('status', '-')}, {_start_text(run)})"
++        return _join(header, body, notes), intent, ctx.metadata(**meta_extra)
++
++    metric_label = _metric_name(metric_column) if metric_column else None
++    columns = ["Run"] + ([metric_label] if metric_label else []) + ["Status", "Start"]
++    lines = [f"run {count_text}", "", "| " + " | ".join(columns) + " |", "|" + "---|" * len(columns)]
++    for run in selected[:MAX_RUN_ROWS]:
++        cells = [cs._md_cell(_run_name(run))]
++        if metric_column:
++            value = run.get(metric_column)
++            cells.append(cs._fmt_metric_value(value) if _finite(value) is not None else "-")
++        cells.extend([str(run.get("status", "-")), _start_text(run)])
++        lines.append("| " + " | ".join(cells) + " |")
++    if len(selected) > MAX_RUN_ROWS:
++        lines.append(f"\n(너무 길어 {MAX_RUN_ROWS}개만 표시)")
++    return _join(header, "\n".join(lines), notes), intent, ctx.metadata(**meta_extra)
++
++
++# ── 3-4. 이름으로 지목한 run ─────────────────────────────
++
++
++def _load_named_runs(ctx: _Context) -> tuple[list[dict], list[str], list[str]]:
++    """runs의 각 항목을 찾는다. 반환: (run별 대표 레코드, 찾지 못한 이름, 참고 사항)."""
++    experiment = ctx.resolved.get("experiment")
++    primaries: list[dict] = []
++    missing: list[str] = []
++    notes: list[str] = []
++    for ref in ctx.req["runs"]:
++        is_id = bool(_RUN_ID_RE.fullmatch(ref))
++        records = find_runs(
++            run_name=None if is_id else ref,
++            run_id=ref if is_id else None,
++            experiment_name=experiment,
++        )
++        if not records:
++            missing.append(ref)
++            continue
++        ordered = sorted(records, key=lambda r: _epoch(r.get("start_time")) or 0.0, reverse=True)
++        primary = ordered[0]
++        if len(ordered) > 1:
++            notes.append(f"`{ref}` 이름의 run이 {len(ordered)}개라 가장 최근 run을 사용했습니다.")
++        if primary.get("matched_outside_experiment"):
++            notes.append(
++                f"`{ref}`는 `{primary['matched_outside_experiment']}`이 아니라 "
++                f"`{primary.get('experiment_name')}`에서 찾았습니다."
++            )
++        primaries.append(primary)
++    return primaries, missing, notes
++
++
++def _answer_named_runs(ctx: _Context) -> tuple[str, str, dict]:
++    req = ctx.req
++    primaries, missing, notes = _load_named_runs(ctx)
++    ctx.sources["runs"] = ctx.source_of("runs")
++    if not primaries:
++        labels = ", ".join(f"`{m}`" for m in missing)
++        return f"{labels} run을 찾지 못했습니다.", "get_run_info", ctx.metadata(count=0)
++    if missing:
++        notes.append("찾지 못한 run: " + ", ".join(f"`{m}`" for m in missing))
++    if not ctx.resolved.get("experiment"):
++        experiments = {r.get("experiment_name") for r in primaries}
++        if len(experiments) == 1:
++            ctx.resolved["experiment"] = next(iter(experiments))
++            ctx.sources.setdefault("experiment", "run에서 확인")
++
++    from_previous = ctx.sources["runs"] == "이전 대화"
++    # '그 중에 ~가 제일 낮은 건?'처럼 지목한 run 여러 개 안에서 순위로 고르는 요청
++    if len(primaries) > 1 and (req["sort_by"] or req["pick"]):
++        scope = f"대상 직전 결과 run {len(primaries)}개" if from_previous else f"대상 run {len(primaries)}개"
++        return _answer_ranked_runs(ctx, records=primaries, scope_text=scope, notes=notes)
++
++    ctx.resolved["runs"] = [_run_name(r) for r in primaries]
++    columns = sorted({k for r in primaries for k in r if k.startswith("metrics.")})
++    metric_column = None
++    if req["metric"]:
++        metric_column, error = _resolve_metric_for(ctx, columns)
++        if error:
++            return error
++
++    header = ""
++    if from_previous:
++        header = "대상 run: " + ", ".join(f"`{n}`" for n in ctx.resolved["runs"]) + "(이전 대화)"
++
++    if req["action"] == "compare":
++        if len(primaries) < 2:
++            body = "비교하려면 run이 두 개 이상 필요합니다. 비교할 다른 run을 알려주세요."
++            return _join(header, body, notes), "compare_runs", ctx.metadata()
++        return _answer_compare(ctx, primaries[:MAX_COMPARE_RUNS], metric_column, header, notes)
++    return _answer_run_records(ctx, primaries, metric_column, header, notes)
++
++
++def _answer_run_records(
++    ctx: _Context,
++    primaries: list[dict],
++    metric_column: str | None,
++    header: str,
++    notes: list[str],
++) -> tuple[str, str, dict]:
++    """정해진 run(들)에 대해 값·항목·상세·요약·평가 중 요청한 범위로 답한다."""
++    req = ctx.req
++    run_meta = cs._run_detail_metadata(primaries[:1])
++    run_meta.pop("experiment_name", None)
++
++    wants_summary = req["action"] == "summarize" or (
++        req["action"] == "lookup" and req["output"] == "brief" and not metric_column and not req["fields"]
++    )
++    if wants_summary:
++        body = _llm_run_answer(ctx, primaries[0], RUN_SUMMARY_PROMPT, with_siblings=False)
++        return _join(header, body, notes), "summarize_run", ctx.metadata(**run_meta, grounded_on_run=True)
++
++    if req["action"] == "evaluate":
++        body = _llm_run_answer(ctx, primaries[0], RUN_EVALUATION_PROMPT, with_siblings=True)
++        return _join(header, body, notes), "evaluate_run", ctx.metadata(**run_meta, grounded_on_run=True)
++
++    if metric_column and not req["fields"]:
++        lines = []
++        for run in primaries:
++            value = run.get(metric_column)
++            if _finite(value) is None:
++                lines.append(f"`{_run_name(run)}`에는 `{_metric_name(metric_column)}` 값이 없습니다.")
++            else:
++                lines.append(
++                    f"`{_run_name(run)}`의 `{_metric_name(metric_column)}`는 {cs._fmt_metric_value(value)}입니다."
++                )
++        return _join(header, "\n".join(lines), notes), "get_run_info", ctx.metadata(**run_meta)
++
++    if req["fields"]:
++        sections = [_run_fields_markdown(run, req["fields"]) for run in primaries]
++        return _join(header, "\n\n".join(sections), notes), "get_run_info", ctx.metadata(**run_meta)
++
++    sections = [cs._format_run_detail_markdown([run]) for run in primaries]
++    return _join(header, "\n\n---\n\n".join(sections), notes), "get_run_info", ctx.metadata(**run_meta)
++
++
++def _run_fields_markdown(run: dict, fields: list[str]) -> str:
++    lines = [f"`{_run_name(run)}` ({run.get('experiment_name', '-')})"]
++    if "id" in fields:
++        lines.append(f"- Run ID: `{run.get('run_id', '-')}`")
++    if "status" in fields:
++        lines.append(f"- Status: {run.get('status', '-')}")
++    if "time" in fields:
++        end_date, end_time = split_run_start_time(run.get("end_time"))
++        lines.append(f"- Start: {_start_text(run)} / End: {end_date} {end_time}".rstrip())
++    if "params" in fields:
++        params = sorted((k.removeprefix("params."), v) for k, v in run.items() if k.startswith("params."))
++        lines.extend(["", "| Parameter | Value |", "|---|---|"])
++        if params:
++            lines.extend(f"| {cs._md_cell(k)} | {cs._md_cell(v)} |" for k, v in params)
++        else:
++            lines.append("| - | - |")
++    if "metrics" in fields:
++        metrics = _model_metric_columns(run)
++        lines.extend(["", "| Metric | Value |", "|---|---|"])
++        if metrics:
++            lines.extend(f"| {cs._md_cell(_metric_name(c))} | {cs._fmt_metric_value(run[c])} |" for c in metrics)
++        else:
++            lines.append("| - | - |")
++    return "\n".join(lines)
++
++
++def _answer_compare(
++    ctx: _Context,
++    runs: list[dict],
++    metric_column: str | None,
++    header: str,
++    notes: list[str],
++) -> tuple[str, str, dict]:
++    req = ctx.req
++    names = [_run_name(r) for r in runs]
++    ctx.resolved["runs"] = names
++    labels = names
++    if req["pick"] == "both_ends" and len(runs) == 2:
++        if req["order"] != "asc":
++            labels = [f"{names[0]} (최고)", f"{names[1]} (최저)"]
++        else:
++            labels = [f"{names[0]} (최저)", f"{names[1]} (최고)"]
++
++    if metric_column:
++        metric_rows = [metric_column]
++        if req["output"] != "value":
++            others = [c for c in _model_metric_columns(runs[0]) if c != metric_column]
++            metric_rows += others[: MAX_COMPARE_METRICS - 1]
++    else:
++        common = set(_model_metric_columns(runs[0]))
++        for run in runs[1:]:
++            common &= set(_model_metric_columns(run))
++        metric_rows = sorted(common)[:MAX_COMPARE_METRICS]
++
++    lines = [
++        "| 항목 | " + " | ".join(cs._md_cell(label) for label in labels) + " |",
++        "|---|" + "---|" * len(runs),
++    ]
++    for column in metric_rows:
++        values = [cs._fmt_metric_value(r.get(column)) if _finite(r.get(column)) is not None else "-" for r in runs]
++        lines.append(f"| {cs._md_cell(_metric_name(column))} | " + " | ".join(values) + " |")
++
++    if req["output"] != "value":
++        param_keys = sorted({k for r in runs for k in r if k.startswith("params.")})
++        differing = [k for k in param_keys if len({str(r.get(k, "-")) for r in runs}) > 1]
++        for key in differing[:MAX_COMPARE_METRICS]:
++            values = [cs._md_cell(r.get(key, "-")) for r in runs]
++            lines.append(f"| param: {cs._md_cell(key.removeprefix('params.'))} | " + " | ".join(values) + " |")
++        if param_keys and not differing:
++            notes.append("비교한 run의 파라미터는 모두 같습니다.")
++
++    summary = ""
++    if metric_column and len(runs) == 2:
++        a, b = _finite(runs[0].get(metric_column)), _finite(runs[1].get(metric_column))
++        if a is not None and b is not None:
++            diff = a - b
++            higher = names[0] if diff > 0 else names[1]
++            summary = (
++                f"`{_metric_name(metric_column)}` 차이: `{names[0]}` − `{names[1]}` = {diff:+.6g}"
++                + (f" (`{higher}`가 더 높음)" if diff != 0 else " (같음)")
++            )
++    body = "\n".join(lines) + (f"\n\n{summary}" if summary else "")
++    run_rows = [RunDisplayRow.from_mlflow_raw(r, metric_column) for r in runs]
++    return _join(header, body, notes), "compare_runs", ctx.metadata(
++        count=len(runs),
++        run_display_rows=[row.model_dump(mode="json", by_alias=True) for row in run_rows],
++    )
++
++
++# ── 3-5. LLM 답변(요약·평가) ─────────────────────────────
++
++
++def _lower_is_better(metric_name: str) -> bool:
++    lowered = metric_name.lower()
++    return any(token in lowered for token in _LOWER_IS_BETTER)
++
++
++def _sibling_stats_markdown(run: dict, metric_column: str | None) -> str:
++    """같은 실험 run 대비 위치를 표로 만든다(평가 근거)."""
++    experiment = run.get("experiment_name")
++    if not experiment:
++        return ""
++    siblings = get_runs(experiment)
++    columns = [metric_column] if metric_column else _model_metric_columns(run)[:MAX_EVAL_METRICS]
++    lines = [
++        f"같은 실험 비교 기준: `{experiment}` run {len(siblings)}개",
++        "",
++        "| metric | 이 run | 순위 | 최고 | 중앙값 | 최저 | 좋은 방향 |",
++        "|---|---|---|---|---|---|---|",
++    ]
++    for column in columns:
++        mine = _finite(run.get(column))
++        values = [v for v in (_finite(s.get(column)) for s in siblings) if v is not None]
++        if mine is None or not values:
++            continue
++        lower_better = _lower_is_better(_metric_name(column))
++        ranked = sorted(values, reverse=not lower_better)
++        rank = 1 + sum(1 for v in values if (v < mine if lower_better else v > mine))
++        lines.append(
++            f"| {_metric_name(column)} | {cs._fmt_metric_value(mine)} | {len(values)}개 중 {rank}위 | "
++            f"{cs._fmt_metric_value(ranked[0])} | {cs._fmt_metric_value(statistics.median(values))} | "
++            f"{cs._fmt_metric_value(ranked[-1])} | {'낮을수록' if lower_better else '높을수록'} |"
++        )
++    return "\n".join(lines)
++
++
++def _llm_run_answer(ctx: _Context, run: dict, system_prompt: str, *, with_siblings: bool) -> str:
++    context = "run 상세:\n" + cs._format_run_detail_markdown([run])
++    if with_siblings:
++        stats = _sibling_stats_markdown(run, ctx.resolved.get("metric_column"))
++        if stats:
++            context += "\n\n" + stats
++    messages: list[dict[str, str]] = [
++        {"role": "system", "content": system_prompt},
++        {"role": "system", "content": context},
++        *cs._history_to_openai_messages(ctx.history),
++        {"role": "user", "content": ctx.message},
++    ]
++    record_tool_call("llm_answer", {"context": "run_detail_with_siblings" if with_siblings else "run_detail"})
++    completion = cs._client().chat.completions.create(
++        model=settings.chat_model,
++        temperature=settings.chat_temperature,
++        messages=messages,
++    )
++    return cs.strip_think_tags(completion.choices[0].message.content or "")

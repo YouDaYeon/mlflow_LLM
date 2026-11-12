@@ -121,7 +121,6 @@ def append_chat_message(
     session_id: UUID,
     role: str,
     content: str,
-    intent: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> ChatMessageRow:
     session = get_chat_session(db, session_id)
@@ -132,7 +131,6 @@ def append_chat_message(
         session_id=session_id,
         role=role,
         content=content,
-        intent=intent,
         message_metadata=metadata or {},
     )
     db.add(row)
@@ -202,6 +200,11 @@ def get_last_assistant_context(
             ctx["top_k"] = meta["top_k"]
         if meta.get("ascending") is not None:
             ctx["ascending"] = meta["ascending"]
+        # 요청 해석기가 남긴 직전 요청 구조와 답변 대상(다음 턴의 유지·변경·해제 판단용)
+        if isinstance(meta.get("request"), dict):
+            ctx["request"] = meta["request"]
+        if isinstance(meta.get("resolved"), dict):
+            ctx["resolved"] = meta["resolved"]
         if ctx:
             return ctx
     return {}

@@ -1,45 +1,18 @@
 import json
 import re
-from datetime import datetime, timedelta
-from typing import Any, Dict, Tuple, Union
 
 from openai import OpenAI
 from agents import Agent, MultiProvider, Runner, RunConfig
 from agents.mcp import MCPServerManager
 
 from backend.app.config import settings
-from backend.app.schemas import ChatMessage, ExpDisplayRow, RunDisplayRow, split_run_start_time
+from backend.app.schemas import ChatMessage
 from backend.app.services.mlflow_service import (
-    list_experiment_names,
-    list_recent_experiment_names,
-    list_run_metrics,
-    find_runs,
-    get_experiment,
-    get_runs,
     create_mlflow_mcp_server,
     extract_tool_calls,
+    record_tool_call,
 )
 
-ALLOWED_INTENTS = {
-    "list_experiments",
-    "list_recent_experiments",
-    "list_metric_keys",
-    "get_experiment",
-    "get_runs",
-    "get_run_info",
-    "search_runs",
-    "report_qa",
-    "mlflow_mcp",
-}
-ALLOWED_INTENT_ARGUMENT_KEYS = frozenset(
-    {"experiment_name", "metric_key", "top_k", "ascending", "run_name", "run_id"}
-)
-DEFAULT_INTENT = "mlflow_mcp"
-MAX_EXPERIMENT_PREVIEW = 20
-MAX_RUNS_PREVIEW = 20
-MAX_RECENT_EXPERIMENTS = 5
-MAX_METRIC_KEYS_PREVIEW = 30
-MAX_FILTER_RUNS_PREVIEW = 20
 
 # Qwen 등 reasoning 모델이 붙이는 사고 과정 블록
 _THINK_BLOCK_RE = re.compile(r"<think>[\s\S]*?</think>", re.IGNORECASE)
@@ -50,164 +23,25 @@ def strip_think_tags(text: str | None) -> str:
     cleaned = _THINK_BLOCK_RE.sub("", text or "")
     return cleaned.strip()
 
-INTENT_PARSING_PROMPT = (
-    "당신은 MLflow 실험 QA 시스템의 Query Parser이다.\n"
-    "사용자 메시지를 분석하여 '의도(intent)'와 '필요한 인자(arguments)'를 추출하라.\n"
-    "반드시 JSON 한 줄로만 응답하라.\n\n"
-
-    "출력 형식:\n"
-    "{\"intent\":\"...\", \"arguments\":{...}}\n\n"
-
-    "intent 후보:\n"
-    "list_experiments, list_recent_experiments, list_metric_keys, "
-    "get_experiment, get_runs, get_run_info, search_runs, report_qa, mlflow_mcp\n\n"
-
-    "=== intent 정의 ===\n"
-    "- list_experiments: 전체 실험 목록 또는 특정 이름 기반 실험 나열\n"
-    "- list_recent_experiments: 최근/최신 실험 조회\n"
-    "- list_metric_keys: metric/지표 이름 목록 요청\n"
-    "- get_experiment: 특정 실험의 상세 정보 요청. 식별자는 실험 이름이다.\n"
-    "- get_runs: 특정 실험의 run 목록 조회 (조건 없음, run 여러 개)\n"
-    "- get_run_info: 특정 run 하나의 상세 조회, 또는 그 run의 특정 metric 값 조회.\n"
-    "  식별자는 run 이름 또는 32자리 hex run id.\n"
-    "  MLflow 기본 run 이름은 adjective-noun-숫자 형태다 (예: carefree-moth-973).\n"
-    "  사용자가 이것을 run ID라고 불러도, 정수 experiment id가 아니면 get_run_info이다.\n"
-    "  '실험 정보를 알려줘'라도 식별자가 run 이름/run id이면 get_experiment가 아니라 get_run_info이다.\n"
-    "  특정 metric 값만 물으면 metric_key를 포함한다. run 전체 상세/정보를 물으면 metric_key를 넣지 않는다.\n"
-    "  학습이 잘 됐는지, 평가, 해석, 원인처럼 판단이 필요한 질문은 get_run_info가 아니다.\n"
-    "- search_runs: 기간/metric/top_k/상태/tag 등 조건 기반 run 검색\n"
-    "- report_qa: 보고서 내용 기반 질의응답\n"
-    "- mlflow_mcp: 위 intent로 처리 불가능한 모든 질문.\n"
-    "  run 성과 평가, 해석, 원인처럼 판단이 필요하면 mlflow_mcp로 두고 run_name 또는 run_id를 남긴다.\n\n"
-
-    "=== arguments 규칙 ===\n"
-    "가능한 인자 키:\n"
-    "- experiment_name: 실험 이름\n"
-    "- run_name: run 이름 (예: carefree-moth-973). 32자리 hex가 아닌 run 식별자.\n"
-    "- run_id: 32자리 16진수 run id. run 이름을 여기에 넣지 않는다.\n"
-    "- metric_key: metric 이름\n"
-    "- top_k: 상위 k개\n"
-    "- ascending: 오름차순 정렬 여부\n"
-
-    "규칙:\n"
-    "1. intent는 반드시 하나만 선택한다.\n"
-    "2. arguments는 추출 가능한 값만 포함한다.\n"
-    "3. 인자가 없으면 빈 객체 {} 를 반환한다.\n"
-    "4. 자연어 조사, 조사 변형, 조사 제거 후 핵심 값만 추출한다.\n"
-    "5. 실험 이름은 사용자가 말한 그대로 유지한다.\n"
-    "6. 현재 질문에 인자가 없어도, 이전 대화에 명시된 experiment_name/metric_key/top_k/"
-    "ascending/run_name/run_id가 있으면 arguments에 채운다. 이전 대화에도 없으면 추론하지 않는다.\n"
-    "   예외: get_run_info의 metric_key는 현재 질문이 그 metric 값을 물을 때만 넣는다. "
-    "이전 대화의 metric_key를 run 상세 질문에 복사하지 않는다.\n"
-    "7. 절대 설명하지 말고 JSON만 출력한다.\n\n"
-
-    "=== 예시 ===\n"
-
-    "사용자: 실험 목록 보여줘\n"
-    "{\"intent\":\"list_experiments\",\"arguments\":{}}\n\n"
-
-    "사용자: 최근 실험 알려줘\n"
-    "{\"intent\":\"list_recent_experiments\",\"arguments\":{}}\n\n"
-
-    "사용자: yolo26_gaze tuning 실험 정보 알려줘\n"
-    "{\"intent\":\"get_experiment\",\"arguments\":{\"experiment_name\":\"yolo26_gaze tuning\"}}\n\n"
-
-    "사용자: yolo26_gaze run 목록\n"
-    "{\"intent\":\"get_runs\",\"arguments\":{\"experiment_name\":\"yolo26_gaze\",\"ascending\":false}}\n\n"
-
-    "사용자: run ID가 carefree-moth-973인 실험 정보를 알려줘\n"
-    "{\"intent\":\"get_run_info\",\"arguments\":{\"run_name\":\"carefree-moth-973\"}}\n\n"
-
-    "사용자: Deep Learning Experiment에서 burly-kit-617 run 상세 알려줘\n"
-    "{\"intent\":\"get_run_info\",\"arguments\":{\"experiment_name\":\"Deep Learning Experiment\",\"run_name\":\"burly-kit-617\"}}\n\n"
-
-    "사용자: yolo26n-hpo-20 run의 metrics/mAP50B 값은 얼마야?\n"
-    "{\"intent\":\"get_run_info\",\"arguments\":{\"run_name\":\"yolo26n-hpo-20\",\"metric_key\":\"metrics/mAP50B\"}}\n\n"
-
-    "사용자: yolo26n-hpo-20 run 학습이 잘 된 편이야?\n"
-    "{\"intent\":\"mlflow_mcp\",\"arguments\":{\"run_name\":\"yolo26n-hpo-20\"}}\n\n"
-
-    "사용자: metrics.metrics/mAP50B가 높은 run top 5 보여줘\n"
-    "{\"intent\":\"search_runs\",\"arguments\":{\"metric_key\":\"metrics.metrics/mAP50B\",\"top_k\":5}}\n\n"
-
-    "사용자: 보고서 기반으로 다음 실험을 제안해줘\n"
-    "{\"intent\":\"report_qa\",\"arguments\":{}}\n\n"
-
-    "이전 대화에 실험명 yolo26_gaze가 있고 현재 질문만 'metric key 알려줘'인 경우:\n"
-    "{\"intent\":\"list_metric_keys\",\"arguments\":{\"experiment_name\":\"yolo26_gaze\"}}\n"
-)
-
-SEARCH_RUNS_FILTER_PARSING_PROMPT = (
-    "당신은 MLflow run 검색 필터 추출기(Query Parser)이다.\n"
-    "사용자 메시지에서 run 검색에 쓰일 '기간/상태/실험자/태그' 조건만 추출하라.\n"
-    "반드시 JSON 한 줄로만 응답하라.\n\n"
-
-    "출력 형식:\n"
-    "{\"recent_days\":null,\"status\":null,\"user\":null,\"tag_key\":null,\"tag_value\":null}\n\n"
-
-    "=== 필드 정의 ===\n"
-    "- recent_days: 정수. '최근 N일', '지난 N일', 'last N days' 등 기간 조건의 N.\n"
-    "  기간 조건이 없으면 null.\n"
-    "- status: MLflow run 상태. 아래 중 하나 또는 null.\n"
-    "  RUNNING | FINISHED | FAILED | KILLED\n"
-    "  한국어/영어 예: running/실행중, finished/완료, failed/실패, killed/중단\n"
-    "- user: 실험자(MLflow user) 식별자 문자열. '실험자', '사용자', '유저', 'user' 뒤 값.\n"
-    "  없으면 null.\n"
-    "- tag_key, tag_value: MLflow 태그 key/value 쌍. '태그 key=value', 'tag key: value' 등.\n"
-    "  둘 다 있을 때만 채우고, 하나만 있으면 둘 다 null.\n\n"
-
-    "=== 규칙 ===\n"
-    "1. metric_key, top_k, experiment_name, 정렬(ascending)은 추출하지 않는다.\n"
-    "2. 메시지에 명시된 정보만 추출하고, 추론·가정하지 않는다.\n"
-    "3. 조건이 없는 필드는 반드시 null이다 (빈 문자열 \"\" 사용 금지).\n"
-    "4. status는 반드시 대문자 enum(RUNNING, FINISHED, FAILED, KILLED)만 사용한다.\n"
-    "5. user, tag_key, tag_value는 사용자가 말한 값을 그대로 유지한다.\n"
-    "6. 절대 설명하지 말고 JSON만 출력한다.\n\n"
-
-    "=== 예시 ===\n"
-
-    "사용자: 최근 7일 finished run 보여줘\n"
-    "{\"recent_days\":7,\"status\":\"FINISHED\",\"user\":null,\"tag_key\":null,\"tag_value\":null}\n\n"
-
-    "사용자: 실험자 alice가 실행한 failed runs\n"
-    "{\"recent_days\":null,\"status\":\"FAILED\",\"user\":\"alice\",\"tag_key\":null,\"tag_value\":null}\n\n"
-
-    "사용자: 태그 env=prod 인 run 목록\n"
-    "{\"recent_days\":null,\"status\":null,\"user\":null,\"tag_key\":\"env\",\"tag_value\":\"prod\"}\n\n"
-
-    "사용자: 최근 3일 동안 사용자 bob이 돌린 running run, 태그 stage=train\n"
-    "{\"recent_days\":3,\"status\":\"RUNNING\",\"user\":\"bob\",\"tag_key\":\"stage\",\"tag_value\":\"train\"}\n\n"
-
-    "사용자: mAP top 5\n"
-    "{\"recent_days\":null,\"status\":null,\"user\":null,\"tag_key\":null,\"tag_value\":null}\n\n"
-)
 
 REPORT_QA_SYSTEM_PROMPT = (
     "당신은 실험 리포트 Q&A 어시스턴트다.\n"
     "아래 규칙을 반드시 지켜라:\n"
-    "1) 제공된 report_text만 근거로 답한다.\n"
-    "2) 근거가 없으면 반드시 '리포트에 근거 없음'이라고 답한다.\n"
-    "3) 사용자가 '핵심 결론', '요약', '한눈에', '정리' 등을 요청하면 "
+    "1) 제공된 report_text만 근거로 답한다. 리포트에 없는 수치·날짜·run을 만들지 않는다.\n"
+    "2) 질문 대상이 리포트에 있으면 리포트에 적힌 값과 문장으로 답한다. "
+    "표현이 조금 달라도(예: '최근 run 두 개', '최고 run') 같은 대상을 가리키면 그 내용을 쓴다.\n"
+    "3) 질문 대상이 리포트에 전혀 없을 때만 '리포트에 근거 없음'이라고 답한다. "
+    "일부만 있으면 있는 부분으로 답하고 없는 부분만 '리포트에 근거 없음'이라고 밝힌다.\n"
+    "4) 사용자가 '핵심 결론', '요약', '한눈에', '정리' 등을 요청하면 "
     "리포트의 핵심 결론을 3~5줄로 요약해 답한다.\n"
-    "4) 요약 시에는 핵심 성능 결과, 주요 차이/원인, 다음 액션(튜닝 제안)을 우선 포함한다.\n"
-    "5) 이전 대화가 있으면 후속 질문의 지시어(그거/약점도/다시 등)를 맥락에 맞게 해석하되, "
+    "5) 요약 시에는 핵심 성능 결과, 주요 차이/원인, 다음 액션(튜닝 제안)을 우선 포함한다.\n"
+    "6) 이전 대화가 있으면 후속 질문의 지시어(그거/약점도/다시 등)를 맥락에 맞게 해석하되, "
     "여전히 report_text만 근거로 답한다.\n"
-    "6) 불필요한 장문 설명은 피하고 한국어로 간결하게 답한다."
-)
-
-RUN_QA_SYSTEM_PROMPT = (
-    "당신은 MLflow run을 해석하는 어시스턴트다.\n"
-    "아래 규칙을 반드시 지켜라:\n"
-    "1) 제공된 run 상세만 근거로 답한다.\n"
-    "2) 근거가 없으면 'run 정보에 근거 없음'이라고 답한다.\n"
-    "3) 평가·판단·해석 질문이면 결론을 먼저 말하고, 근거가 된 metric이나 parameter를 짧게 인용한다.\n"
-    "4) run 상세 전체, 표, parameter/metric 목록을 다시 출력하지 않는다.\n"
-    "5) 이전 대화에 같은 표가 있어도 표를 반복하지 말고 질문에만 답한다.\n"
-    "6) 한국어로 간결하게 답한다."
+    "7) 불필요한 장문 설명은 피하고 한국어로 간결하게 답한다."
 )
 
 
-def _client() -> OpenAI:
+def llm_client() -> OpenAI:
     return OpenAI(base_url=settings.chat_base_url, api_key=settings.chat_api_key)
     # return OpenAI(base_url=settings.llama_base_url, api_key=settings.llama_api_key)
 
@@ -224,7 +58,7 @@ def generate_session_title(user_message: str, assistant_answer: str | None = Non
         snippet = snippet[:200].rstrip() + "…"
 
     try:
-        completion = _client().chat.completions.create(
+        completion = llm_client().chat.completions.create(
             model=settings.chat_model,
             temperature=0,
             max_tokens=40,
@@ -254,39 +88,7 @@ def generate_session_title(user_message: str, assistant_answer: str | None = Non
     return fallback
 
 
-def _format_history_for_intent(
-    history: list[ChatMessage] | None,
-    *,
-    max_assistant_chars: int = 400,
-) -> str:
-    """intent 분류용으로 이전 대화를 짧게 직렬화한다. 비어 있으면 빈 문자열."""
-    if not history:
-        return ""
-    lines: list[str] = []
-    for msg in history:
-        role = (msg.role or "").strip().lower()
-        content = (msg.content or "").strip()
-        if role not in ("user", "assistant") or not content:
-            continue
-        if role == "assistant" and len(content) > max_assistant_chars:
-            content = content[:max_assistant_chars].rstrip() + "…"
-        lines.append(f"{role}: {content}")
-    return "\n".join(lines)
-
-
-def _build_intent_user_content(message: str, history: list[ChatMessage] | None) -> str:
-    history_text = _format_history_for_intent(history)
-    if not history_text:
-        return message
-    return (
-        "이전 대화(참고용):\n"
-        f"{history_text}\n\n"
-        "현재 질문:\n"
-        f"{message}"
-    )
-
-
-def _history_to_openai_messages(
+def history_to_messages(
     history: list[ChatMessage] | None,
 ) -> list[dict[str, str]]:
     """ChatMessage 이력을 OpenAI chat messages 형식의 user/assistant 턴으로 변환."""
@@ -301,652 +103,16 @@ def _history_to_openai_messages(
     return messages
 
 
-def classify_intent(
-    message: str,
-    history: list[ChatMessage] | None = None,
-) -> Tuple[str, Dict[str, Any]]:
-    # hinted = _heuristic_intent(message)
-    # if hinted is not None:
-    #     return hinted
-
-    completion = _client().chat.completions.create(
-        model=settings.chat_model,
-        temperature=0,
-        messages=[
-            {"role": "system", "content": INTENT_PARSING_PROMPT},
-            {"role": "user", "content": _build_intent_user_content(message, history)},
-        ],
-    )
-    raw = strip_think_tags(completion.choices[0].message.content or "")
-
-    # gemma4 raw 형식: {"intent":"...", "arguments":{...}}
-    # qwen3.6 raw 형식: '<think>\n\n</think>\n\n{"intent":"list_experiments","arguments":{}}'
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
-
-    if not match:
-        raise ValueError("No JSON found in LLM output")
-
-    json_str = match.group(0)
-
-    data = json.loads(json_str)
-    intent = data.get("intent")
-    arguments = data.get("arguments", {})
-
-    return intent, arguments
-
-
-def _format_preview_list(items: list[str], limit: int) -> tuple[str, str]:
-    preview = "\n".join(f"- {item}" for item in items[:limit])
-    suffix = f"\n(너무 길어 {limit}개만 표시)" if len(items) > limit else ""
-    return preview, suffix
-
-
-def _format_run_display_markdown(experiment_name: str, total: int, rows: list[RunDisplayRow]) -> str:
-    """챗봇 답변용 마크다운 표(Parameters 열은 생략, 상세는 metadata.run_display_rows)."""
-    if not rows:
-        return f"`{experiment_name}`에 조회된 run이 없습니다."
-    lines = [
-        f"`{experiment_name}` run **{total}개** (미리보기 **{len(rows)}개**)",
-        "",
-        "| Name | Score | Status | Date | Time |",
-        "|------|-------|--------|------|------|",
-    ]
-    for row in rows:
-        d = row.model_dump(by_alias=True)
-        score = d["Score"]
-        score_s = f"{score:.4f}" if score is not None else "-"
-        name = str(d["Name"]).replace("|", "\\|")
-        lines.append(f"| {name} | {score_s} | {d['Status']} | {d['Date']} | {d['Time']} |")
-    return "\n".join(lines)
-
-
-_ALLOWED_RUN_STATUSES = frozenset({"RUNNING", "FINISHED", "FAILED", "KILLED"})
-
-
-def _empty_search_runs_filters() -> dict[str, object]:
-    return {
-        "recent_days": None,
-        "status": None,
-        "user": None,
-        "tag_key": None,
-        "tag_value": None,
-    }
-
-def _parse_search_runs_filters_from_llm_raw(raw: str) -> dict[str, object]:
-    text = (raw or "").strip()
-    if not text:
-        return _empty_search_runs_filters()
-
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
-        return _empty_search_runs_filters()
-
-    parsed = json.loads(match.group(0))
-    if not isinstance(parsed, dict):
-        return _empty_search_runs_filters()
-        
-    # LLM JSON을 dict로 정규화
-    out = _empty_search_runs_filters()
-
-    recent_days = parsed.get("recent_days")
-    if isinstance(recent_days, int) and recent_days > 0:
-        out["recent_days"] = recent_days
-    elif isinstance(recent_days, str) and recent_days.strip().isdigit():
-        days = int(recent_days.strip())
-        if days > 0:
-            out["recent_days"] = days
-
-    status = parsed.get("status")
-    if isinstance(status, str) and status.strip():
-        normalized = status.strip().upper()
-        if normalized in _ALLOWED_RUN_STATUSES:
-            out["status"] = normalized
-
-    user = parsed.get("user")
-    if isinstance(user, str) and user.strip():
-        out["user"] = user.strip()
-
-    tag_key = parsed.get("tag_key")
-    tag_value = parsed.get("tag_value")
-    if (
-        isinstance(tag_key, str)
-        and tag_key.strip()
-        and isinstance(tag_value, str)
-        and tag_value.strip()
-    ):
-        out["tag_key"] = tag_key.strip()
-        out["tag_value"] = tag_value.strip()
-
-    return out
-
-
-def _parse_search_runs_query(message: str) -> dict[str, object]:
-    """기간/상태/실험자/태그 조건을 사용자 문장에서 LLM으로 추출한다."""
-    msg = (message or "").strip()
-    if not msg:
-        return _empty_search_runs_filters()
-
-    completion = _client().chat.completions.create(
-        model=settings.chat_model,
-        temperature=0,
-        messages=[
-            {"role": "system", "content": SEARCH_RUNS_FILTER_PARSING_PROMPT},
-            {"role": "user", "content": msg},
-        ],
-    )
-    raw = strip_think_tags(completion.choices[0].message.content or "")
-
-    return _parse_search_runs_filters_from_llm_raw(raw)
-
-
-def _to_epoch_seconds(value: object) -> float | None:
-    if value is None:
-        return None
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        ts = float(value)
-        if ts > 1e12:
-            ts /= 1000.0
-        return ts
-    s = str(value).strip()
-    if not s:
-        return None
-    try:
-        ts = float(s)
-        if ts > 1e12:
-            ts /= 1000.0
-        return ts
-    except ValueError:
-        pass
-    try:
-        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-        return dt.timestamp()
-    except ValueError:
-        return None
-
-
-def _apply_search_runs_filters(runs: list[dict], filters: dict[str, object]) -> list[dict]:
-    """조건별로 독립 적용: 기간 -> 상태 -> 실험자 -> 태그."""
-    filtered = list(runs)
-
-    recent_days = filters.get("recent_days")
-    if isinstance(recent_days, int) and recent_days > 0:
-        cutoff = datetime.now().timestamp() - timedelta(days=recent_days).total_seconds()
-        filtered = [
-            run
-            for run in filtered
-            if (_to_epoch_seconds(run.get("start_time")) is not None and _to_epoch_seconds(run.get("start_time")) >= cutoff)
-        ]
-
-    status = filters.get("status")
-    if isinstance(status, str) and status:
-        target = status.upper()
-        filtered = [run for run in filtered if str(run.get("status", "")).upper() == target]
-
-    user = filters.get("user")
-    if isinstance(user, str) and user:
-        filtered = [run for run in filtered if str(run.get("tags.mlflow.user", "")).strip() == user]
-
-    tag_key = filters.get("tag_key")
-    tag_value = filters.get("tag_value")
-    if isinstance(tag_key, str) and tag_key and isinstance(tag_value, str) and tag_value:
-        tag_col = f"tags.{tag_key}"
-        filtered = [run for run in filtered if str(run.get(tag_col, "")).strip() == tag_value]
-
-    return filtered
-
-
-def _format_search_filters(filters: dict[str, object], metric_key: str | None) -> str:
-    items: list[str] = []
-    if isinstance(filters.get("recent_days"), int):
-        items.append(f"기간:{filters['recent_days']}일")
-    if isinstance(filters.get("status"), str) and filters["status"]:
-        items.append(f"상태:{filters['status']}")
-    if isinstance(filters.get("user"), str) and filters["user"]:
-        items.append(f"실험자:{filters['user']}")
-    tag_key = filters.get("tag_key")
-    tag_value = filters.get("tag_value")
-    if isinstance(tag_key, str) and tag_key and isinstance(tag_value, str) and tag_value:
-        items.append(f"태그:{tag_key}:{tag_value}")
-    if isinstance(filters.get("top_k"), int):
-        top_desc = f"top_k:{filters['top_k']}"
-        if metric_key:
-            top_desc += f" ({metric_key} 기준)"
-        items.append(top_desc)
-    if isinstance(filters.get("ascending"), bool):
-        if filters['ascending'] == True:
-            items.append("오름차순")
-        else:
-            items.append("내림차순")
-    if not items:
-        return "적용 필터: 없음(전체 run)"
-    return "적용 필터: " + " | ".join(items)
-
-
-# 뒤에 한국어 조사(인/의/은)가 붙어도 run 이름으로 본다. \b는 한글을 단어 문자로 봐서 경계가 안 생긴다.
-_MLFLOW_RUN_NAME_RE = re.compile(
-    r"(?<![A-Za-z0-9_-])[A-Za-z]+(?:-[A-Za-z0-9]+)+-\d+(?![A-Za-z0-9_-])"
-)
-_MLFLOW_RUN_ID_RE = re.compile(r"(?<![0-9a-fA-F])[0-9a-fA-F]{32}(?![0-9a-fA-F])")
-_RUN_LIST_RE = re.compile(r"목록|리스트|\blist\b", re.IGNORECASE)
-_RUN_JUDGMENT_RE = re.compile(
-    r"잘\s*됐|잘\s*된|잘된|어때|어떻게|평가|판단|해석|원인|왜|문제|개선|괜찮|좋아|나빠|부진|성공|실패|어떤\s*편",
-    re.IGNORECASE,
-)
-
-
-def is_run_judgment_question(message: str | None) -> bool:
-    """run 상세 조회가 아니라, 그 run에 대한 평가·해석인지 본다."""
-    return bool(_RUN_JUDGMENT_RE.search(message or ""))
-
-
-def extract_single_run_reference(message: str | None) -> tuple[str | None, str | None]:
-    """질문에서 run 하나(run id, run name)를 뽑는다. 목록 질문이나 여러 개면 (None, None)."""
-    text = message or ""
-    if _RUN_LIST_RE.search(text):
-        return None, None
-    run_ids = _MLFLOW_RUN_ID_RE.findall(text)
-    run_names = _MLFLOW_RUN_NAME_RE.findall(text)
-    if len(run_ids) == 1 and not run_names:
-        return run_ids[0], None
-    if len(run_names) == 1 and not run_ids:
-        return None, run_names[0]
-    return None, None
-
-
-def _fmt_metric_value(value: object) -> str:
-    try:
-        number = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return str(value)
-    if number != number or number in (float("inf"), float("-inf")):
-        return "-"
-    return f"{number:.6g}"
-
-
-def _md_cell(value: object) -> str:
-    return str(value).replace("|", "\\|").replace("\n", " ")
-
-
-def _format_run_detail_markdown(records: list[dict]) -> str:
-    """run 하나(또는 동명 run 여러 개)의 파라미터·메트릭을 마크다운으로 만든다."""
-    ordered = sorted(
-        records,
-        key=lambda r: str(r.get("start_time") or ""),
-        reverse=True,
-    )
-    primary = ordered[0]
-    run_name = str(primary.get("tags.mlflow.runName") or "-")
-    lines = [f"`{run_name}` run 정보"]
-    outside = primary.get("matched_outside_experiment")
-    if outside:
-        lines.append(
-            f"요청한 실험 `{outside}`에는 없고, `{primary.get('experiment_name', '-')}`에서 찾았습니다."
-        )
-    if len(ordered) > 1:
-        lines.append(f"같은 이름의 run이 {len(ordered)}개입니다. 가장 최근 run을 표시합니다.")
-    lines.append("")
-
-    date_s, time_s = split_run_start_time(primary.get("start_time"))
-    end_date, end_time = split_run_start_time(primary.get("end_time"))
-    started = date_s if time_s == "-" else f"{date_s} {time_s}"
-    ended = end_date if end_time == "-" else f"{end_date} {end_time}"
-    lines.extend(
-        [
-            f"- Experiment: `{primary.get('experiment_name', '-')}` (ID `{primary.get('experiment_id', '-')}`)",
-            f"- Run name: `{run_name}`",
-            f"- Run ID: `{primary.get('run_id', '-')}`",
-            f"- Status: {primary.get('status', '-')}",
-            f"- User: {primary.get('tags.mlflow.user', '-')}",
-            f"- Start: {started}",
-            f"- End: {ended}",
-        ]
-    )
-
-    params = sorted(
-        (key.removeprefix("params."), value)
-        for key, value in primary.items()
-        if key.startswith("params.")
-    )
-    model_metrics = []
-    system_metrics = []
-    for key, value in primary.items():
-        if not key.startswith("metrics."):
-            continue
-        metric_name = key.removeprefix("metrics.")
-        bucket = system_metrics if metric_name.startswith("system/") else model_metrics
-        bucket.append((metric_name, value))
-
-    def _table(title: str, rows: list[tuple[str, object]]) -> None:
-        lines.extend(["", f"**{title}**", "", "| Key | Value |", "|-----|-------|"])
-        if not rows:
-            lines.append("| - | - |")
-            return
-        for key, value in rows:
-            shown = _fmt_metric_value(value) if title != "Parameters" else value
-            lines.append(f"| {_md_cell(key)} | {_md_cell(shown)} |")
-
-    _table("Parameters", params)
-    _table("Metrics", sorted(model_metrics))
-    if system_metrics:
-        _table("System metrics", sorted(system_metrics))
-
-    if len(ordered) > 1:
-        lines.extend(["", "**같은 이름의 다른 run**", ""])
-        for record in ordered[1:]:
-            lines.append(
-                f"- `{record.get('experiment_name', '-')}` / "
-                f"`{record.get('run_id', '-')}` / {record.get('status', '-')}"
-            )
-    return "\n".join(lines)
-
-
-def _run_detail_metadata(records: list[dict]) -> dict:
-    if not records:
-        return {"count": 0}
-    primary = sorted(records, key=lambda r: str(r.get("start_time") or ""), reverse=True)[0]
-    return {
-        "count": len(records),
-        "experiment_name": primary.get("experiment_name"),
-        "experiment_id": str(primary.get("experiment_id", "")),
-        "run_name": primary.get("tags.mlflow.runName"),
-        "run_id": primary.get("run_id"),
-    }
-
-
-def _metric_column_name(metric_key: str) -> str:
-    key = metric_key.strip()
-    return key if key.startswith("metrics.") else f"metrics.{key}"
-
-
-def _lookup_run_metric(record: dict, metric_key: str) -> tuple[str, object] | None:
-    """레코드에서 metric 컬럼을 찾는다. 사용자는 metrics/mAP50B처럼 prefix 없이 말한다."""
-    column = _metric_column_name(metric_key)
-    if column in record:
-        return column, record[column]
-    return None
-
-
-def _format_single_metric_answer(records: list[dict], metric_key: str) -> tuple[str, str | None]:
-    ordered = sorted(records, key=lambda r: str(r.get("start_time") or ""), reverse=True)
-    primary = ordered[0]
-    run_name = str(primary.get("tags.mlflow.runName") or "-")
-    suffix = ""
-    if len(ordered) > 1:
-        suffix = f" 같은 이름의 run이 {len(ordered)}개라 가장 최근 run 기준입니다."
-    found = _lookup_run_metric(primary, metric_key)
-    if found is None:
-        display = metric_key.strip().removeprefix("metrics.")
-        return f"`{run_name}` run에 `{display}` metric이 없습니다.{suffix}", None
-    column, value = found
-    display = column.removeprefix("metrics.")
-    return f"`{run_name}`의 `{display}`는 {_fmt_metric_value(value)}입니다.{suffix}", column
-
-
-def _respond_with_run_records(
-    records: list[dict],
-    asked_metric_key: str | None,
-) -> tuple[str, str, dict]:
-    meta = _run_detail_metadata(records)
-    asked = (asked_metric_key or "").strip()
-    if not asked:
-        return _format_run_detail_markdown(records), "get_run_info", meta
-    answer, column = _format_single_metric_answer(records, asked)
-    if column:
-        meta["metric_key"] = column
-    return answer, "get_run_info", meta
-
-
-def _answer_get_run_info(
-    *,
-    experiment_name: str | None,
-    message: str | None,
-    run_name: str | None,
-    run_id: str | None,
-    asked_metric_key: str | None = None,
-) -> tuple[str, str, dict]:
-    guessed_id, guessed_name = extract_single_run_reference(message)
-    resolved_id = (run_id or "").strip() or guessed_id
-    resolved_name = (run_name or "").strip() or guessed_name
-    label = resolved_name or resolved_id or "-"
-    if not resolved_id and not resolved_name:
-        return (
-            "조회할 run 이름 또는 run ID가 없습니다. 예: carefree-moth-973",
-            "get_run_info",
-            {"count": 0},
-        )
-
-    records = find_runs(
-        run_name=resolved_name or None,
-        run_id=resolved_id or None,
-        experiment_name=experiment_name,
-    )
-    if not records:
-        return (
-            f"`{label}` run을 찾지 못했습니다.",
-            "get_run_info",
-            {"count": 0, "run_name": resolved_name or None, "run_id": resolved_id or None},
-        )
-    return _respond_with_run_records(records, asked_metric_key)
-
-
-def answer_experiment_question(
-    intent: str,
-    experiment_name: str | None,
-    message: str | None,
-    metric_key: str | None,
-    top_k: int | None,
-    ascending: bool | None,
-    run_name: str | None = None,
-    run_id: str | None = None,
-    asked_metric_key: str | None = None,
-) -> tuple[str, str, dict]:
-    if intent == "list_experiments":   
-        names = list_experiment_names()
-        if not names:
-            return "등록된 실험이 없습니다.", intent, {"count": 0}
-        preview, suffix = _format_preview_list(names, MAX_EXPERIMENT_PREVIEW)
-        return f"실험 목록({len(names)}개)\n{preview}{suffix}", intent, {"count": len(names)}
-
-    if intent == "list_recent_experiments":
-        names = list_recent_experiment_names(limit=MAX_RECENT_EXPERIMENTS)
-        if not names:
-            return "최근 실험이 없습니다.", intent, {"count": 0}
-        return f"최근 실험({len(names)}개)\n" + "\n".join(f"- {name}" for name in names), intent, {"count": len(names)}
-
-    if intent == "get_run_info":
-        return _answer_get_run_info(
-            experiment_name=experiment_name,
-            message=message,
-            run_name=run_name,
-            run_id=run_id,
-            asked_metric_key=asked_metric_key,
-        )
-
-    target_experiment = experiment_name
-    if not target_experiment:
-        return "조회할 실험이 없습니다.", intent, {}
-
-    # list_metric_keys
-    if intent == "list_metric_keys":
-        keys = list_run_metrics(target_experiment)
-        if not keys:
-            return f"{target_experiment}의 metric 키가 없습니다.", intent, {"experiment_name": target_experiment, "count": 0}
-        preview, suffix = _format_preview_list(keys, MAX_METRIC_KEYS_PREVIEW)
-        return (
-            f"{target_experiment} metric 키 목록({len(keys)}개)\n{preview}{suffix}",
-            intent,
-            {"experiment_name": target_experiment, "count": len(keys)},
-        )
-
-    # get_experiment
-    if intent == "get_experiment":
-        msg_run_id, msg_run_name = extract_single_run_reference(message)
-        if msg_run_name or msg_run_id:
-            return _answer_get_run_info(
-                experiment_name=experiment_name,
-                message=message,
-                run_name=run_name or msg_run_name,
-                run_id=run_id or msg_run_id,
-                asked_metric_key=asked_metric_key,
-            )
-        if target_experiment not in set(list_experiment_names()):
-            matched = find_runs(run_name=target_experiment)
-            if matched:
-                return _respond_with_run_records(matched, asked_metric_key)
-        experiment = get_experiment(target_experiment)
-        if not experiment:
-            return f"{target_experiment} 실험이 없습니다.", intent, {"experiment_name": target_experiment, "count": 0}
-        exp_row = ExpDisplayRow.from_experiment_dict(target_experiment, experiment)
-        return (
-            exp_row.to_markdown(),
-            intent,
-            {
-                "experiment_name": target_experiment,
-                "experiment_display_row": exp_row.to_metadata(),
-            },
-        )
-
-    # get_runs
-    if intent == "get_runs":
-        runs = get_runs(target_experiment)
-        if not runs:
-            return f"{target_experiment} run 목록이 없습니다.", intent, {"experiment_name": target_experiment, "count": 0}
-        rows = [
-            RunDisplayRow.from_mlflow_raw(r, metric_key)
-            for r in runs
-        ]
-        # # Score(선택 metric 기준) 내림차순; 없으면 맨 뒤로
-        # rows = sorted(
-        #     rows,
-        #     key=lambda r: r.score if r.score is not None else float("-inf"),
-        #     reverse=True,
-        # )
-        preview_rows = rows[:MAX_RUNS_PREVIEW]
-        answer = _format_run_display_markdown(target_experiment, len(runs), preview_rows)
-        return (
-            answer,
-            intent,
-            {
-                "experiment_name": target_experiment,
-                "count": len(runs),
-                "run_display_rows": [row.model_dump(mode="json", by_alias=True) for row in preview_rows],
-            },
-        )
-
-    # search_runs
-    if intent == "search_runs":
-        runs = get_runs(target_experiment)
-        if not runs:
-            return "조회 가능한 run이 없습니다.", intent, {"experiment_name": target_experiment, "count": 0}
-
-        filters = _parse_search_runs_query(message or "")
-        filters = {**filters, "top_k": top_k, "ascending": ascending}
-        if isinstance(top_k, int) and top_k > 0 and not metric_key:
-            return (
-                "top_k 검색에는 metric_key 선택이 필요합니다. metric을 선택한 뒤 다시 시도해 주세요.",
-                intent,
-                {"experiment_name": target_experiment, "filters": filters},
-            )
-        
-        # 없는 metric_key를 입력했을 경우
-        if metric_key not in list_run_metrics(target_experiment):
-            return(
-                f"{metric_key}가 없습니다. {target_experiment}의 metric 키 목록을 조회해 주세요.",
-                intent,
-                {"experiment_name": target_experiment, "filters": filters},
-            )
-        
-        filtered_runs = _apply_search_runs_filters(runs, filters)
-        if not filtered_runs:
-            return (
-                f"조건에 맞는 run이 없습니다.\n{_format_search_filters(filters, metric_key)}",
-                intent,
-                {"experiment_name": target_experiment, "count": 0, "filters": filters},
-            )
-
-        rows = [RunDisplayRow.from_mlflow_raw(r, metric_key) for r in filtered_runs]
-        if metric_key and ascending==True:
-            rows = sorted(rows, key=lambda r: r.score if r.score is not None else float("-inf"), reverse=False)
-        elif metric_key and ascending==False:
-            rows = sorted(rows, key=lambda r: r.score if r.score is not None else float("-inf"), reverse=True)
-        else:
-            rows = sorted(rows, key=lambda r: _to_epoch_seconds(r.model_dump(by_alias=True).get("Date")) or 0.0, reverse=True)
-
-        if isinstance(top_k, int) and top_k > 0:
-            rows = rows[:top_k]
-
-        preview_rows = rows[:MAX_RUNS_PREVIEW]
-        filter_text = _format_search_filters(filters, metric_key)
-        table_text = _format_run_display_markdown(target_experiment, len(rows), preview_rows)
-        answer = f"{filter_text}\n\n{table_text}"
-        return (
-            answer,
-            intent,
-            {
-                "experiment_name": target_experiment,
-                "count": len(rows),
-                "filters": filters,
-                "run_display_rows": [row.model_dump(mode="json", by_alias=True) for row in preview_rows],
-            },
-        )
-
-    return f"지원하지 않는 실험 요청입니다: {intent}", intent, {"experiment_name": target_experiment}
-
-def answer_run_question(
-    message: str,
-    *,
-    experiment_name: str | None,
-    run_name: str | None,
-    run_id: str | None,
-    history: list[ChatMessage] | None = None,
-) -> tuple[str, str, dict]:
-    """run 상세를 컨텍스트로 넣고, 사용자 질문에 대한 판단만 모델이 답하게 한다."""
-    guessed_id, guessed_name = extract_single_run_reference(message)
-    resolved_id = (run_id or "").strip() or guessed_id
-    resolved_name = (run_name or "").strip() or guessed_name
-    label = resolved_name or resolved_id or "-"
-    if not resolved_id and not resolved_name:
-        return "판단할 run 이름 또는 run ID가 없습니다.", DEFAULT_INTENT, {"count": 0}
-
-    records = find_runs(
-        run_name=resolved_name or None,
-        run_id=resolved_id or None,
-        experiment_name=experiment_name,
-    )
-    if not records:
-        return (
-            f"`{label}` run을 찾지 못했습니다.",
-            DEFAULT_INTENT,
-            {"count": 0, "run_name": resolved_name or None, "run_id": resolved_id or None},
-        )
-
-    messages: list[dict[str, str]] = [
-        {"role": "system", "content": RUN_QA_SYSTEM_PROMPT},
-        {"role": "system", "content": "run 상세:\n" + _format_run_detail_markdown(records)},
-        *_history_to_openai_messages(history),
-        {"role": "user", "content": message},
-    ]
-    completion = _client().chat.completions.create(
-        model=settings.chat_model,
-        temperature=settings.chat_temperature,
-        messages=messages,
-    )
-    answer = strip_think_tags(completion.choices[0].message.content or "")
-    metadata = _run_detail_metadata(records)
-    metadata["grounded_on_run"] = True
-    return answer, DEFAULT_INTENT, metadata
-
-
 def answer_report_question(
-    intent: str,
     message: str,
     report_text: str | None,
     experiment_name: str | None,
     metric_key: str | None,
     history: list[ChatMessage] | None = None,
-) -> tuple[str, str, dict]:
+    request_scope: str | None = None,
+) -> tuple[str, dict]:
     if not report_text:
-        return "생성된 report_text가 없어 리포트 질문에 답할 수 없습니다.", intent, {}
+        return "생성된 report_text가 없어 리포트 질문에 답할 수 없습니다.", {}
 
     report_context = {
         "report_text": report_text,
@@ -960,22 +126,33 @@ def answer_report_question(
             "content": "리포트 컨텍스트(JSON):\n"
             + json.dumps(report_context, ensure_ascii=False),
         },
-        *_history_to_openai_messages(history),
+    ]
+    if request_scope:
+        # 요청 해석기가 뽑은 대상·개수·답변 범위를 지키게 한다.
+        messages.append(
+            {
+                "role": "system",
+                "content": f"요청 해석: {request_scope}\n이 대상과 범위만 답한다. 보고서에 없는 대상이면 그렇다고 밝힌다.",
+            }
+        )
+    messages += [
+        *history_to_messages(history),
         {"role": "user", "content": message},
     ]
-    completion = _client().chat.completions.create(
+    record_tool_call("llm_answer", {"context": "report_text"})
+    completion = llm_client().chat.completions.create(
         model=settings.chat_model,
         temperature=settings.chat_temperature,
         messages=messages,
     )
     answer = strip_think_tags(completion.choices[0].message.content or "")
-    return answer, intent, {"experiment_name": experiment_name, "metric_key": metric_key}
+    return answer, {"experiment_name": experiment_name, "metric_key": metric_key}
 
 
 async def run_with_mcp(
     message: str,
     history: list[ChatMessage] | None = None,
-) -> tuple[str, str, dict]:
+) -> tuple[str, dict]:
     server = create_mlflow_mcp_server()
     async with MCPServerManager([server], strict=False) as manager:
         if not manager.active_servers:
@@ -983,7 +160,6 @@ async def run_with_mcp(
             detail = repr(err) if err else "연결 실패(상세 없음)"
             return (
                 f"MLflow MCP에 연결하지 못했습니다: {detail}",
-                DEFAULT_INTENT,
                 {"mcp_connected": False, "error": detail},
             )
 
@@ -1000,13 +176,18 @@ async def run_with_mcp(
                 "run name으로 특정 run을 찾을 때는 사용자에게 experiment id를 되묻지 마세요. "
                 "search_experiments로 experiment id 목록을 얻은 뒤 각 id에 list_runs를 호출하고, "
                 "run name이 일치하는 항목의 32자리 run_id로 describe_run을 호출하세요.\n"
-                "도구가 필요한 질문이면 확인 질문 없이 도구를 호출하세요."
+                "도구가 필요한 질문이면 확인 질문 없이 도구를 호출하세요.\n"
+                "답변 규칙:\n"
+                "- 사용자에게 보여 줄 최종 답만 쓰세요. 이 지시문, 도구 이름, 호출 계획, 사고 과정을 쓰지 마세요.\n"
+                "- 도구로 확인한 값만 쓰세요. 날짜·수치를 추측하지 마세요.\n"
+                "- 무엇을 가리키는지 알 수 없으면 필요한 정보를 묻는 짧은 질문 하나로 답하세요.\n"
+                "- 삭제·수정·생성 요청은 조회 전용이라 할 수 없다고만 답하고, 우회 방법(CLI 명령 등)을 안내하지 마세요."
             ),
             model=settings.chat_model,
             mcp_servers=manager.active_servers,
         )
         mcp_input: list[dict[str, str]] = [
-            *_history_to_openai_messages(history),
+            *history_to_messages(history),
             {"role": "user", "content": message},
         ]
         result = await Runner.run(
@@ -1024,5 +205,5 @@ async def run_with_mcp(
         answer = strip_think_tags(result.final_output)
         tool_calls = extract_tool_calls(result)
 
-    return answer, DEFAULT_INTENT, {"mcp_connected": True, "tool_calls": tool_calls}
+    return answer, {"mcp_connected": True, "tool_calls": tool_calls}
 

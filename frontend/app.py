@@ -291,18 +291,19 @@ def _append_and_answer_chat(
     chat_response = _safe_request("POST", "/chat/ask", json=chat_payload, timeout=30)
     if chat_response is None:
         answer = "챗봇 요청 실패: 백엔드 요청에 실패했습니다."
-        intent = "-"
+        route = {}
     elif chat_response.status_code == 200:
         data = chat_response.json()
         answer = data.get("answer", "응답이 비어 있습니다.")
-        intent = data.get("intent", "-")
+        route = (data.get("metadata") or {}).get("route") or {}
     else:
         answer = f"챗봇 응답 실패 ({chat_response.status_code})"
-        intent = "-"
+        route = {}
 
     st.session_state["chat_messages"].append({"role": "assistant", "content": answer})
     with st.chat_message("assistant"):
-        st.caption(f"intent: {intent}")
+        path = route.get("path") or [route.get("handler", "-")]
+        st.caption(f"route: {route.get('parser', '-')} ⇒ " + " → ".join(path))
         _render_chat_bubble("assistant", answer)
 
 

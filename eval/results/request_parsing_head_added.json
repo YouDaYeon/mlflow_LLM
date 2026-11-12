@@ -1,0 +1,342 @@
+{
+  "label": "head_added",
+  "code_root": "/tmp/claude-1006/-home-dyyu-mlflow-LLM-dy/4b16936a-df81-460e-b2ab-068186ae6383/scratchpad/head-wt",
+  "measured_at": "2026-11-11T17:22:00+09:00",
+  "model": "Qwen3.6-35B-A3B",
+  "cases": [
+    {
+      "id": "C05",
+      "group": "복합 요청",
+      "problem": [
+        "P1",
+        "P5"
+      ],
+      "session": null,
+      "message": "Deep Learning Experiment에서 val_accuracy 제일 높은 run의 파라미터만 알려줘",
+      "expected": "val_accuracy 최고 run(burly-kit-617, 77.95) 선택 → 파라미터만: batch_size 64, epochs 5, hidden_units [512, 512], learning_rate 0.001, model_type MLP, optimizer SGD.",
+      "http_status": 200,
+      "elapsed_ms": 3417,
+      "parser": [
+        {
+          "intent": "search_runs",
+          "arguments": {
+            "experiment_name": "Deep Learning Experiment",
+            "metric_key": "val_accuracy",
+            "top_k": 1
+          }
+        },
+        {
+          "search_filters": {
+            "recent_days": null,
+            "status": null,
+            "user": null,
+            "tag_key": null,
+            "tag_value": null
+          }
+        }
+      ],
+      "routed_intent": "search_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "get_runs",
+          "args": [
+            "Deep Learning Experiment"
+          ],
+          "kwargs": {},
+          "result_size": 3
+        },
+        {
+          "tool": "llm:search_filter_parser"
+        },
+        {
+          "tool": "list_run_metrics",
+          "args": [
+            "Deep Learning Experiment"
+          ],
+          "kwargs": {},
+          "result_size": 16
+        }
+      ],
+      "answer": "val_accuracy가 없습니다. Deep Learning Experiment의 metric 키 목록을 조회해 주세요.",
+      "error": null
+    },
+    {
+      "id": "C06",
+      "group": "복합 요청",
+      "problem": [
+        "P1",
+        "P6"
+      ],
+      "session": null,
+      "message": "보고서 기준으로 GPU 메모리 사용량이 가장 적은 run 알려줘",
+      "expected": "보고서에 GPU 메모리 정보가 없으므로 '리포트에 근거 없음'. MLflow 조회나 수치 생성 금지.",
+      "http_status": 200,
+      "elapsed_ms": 2077,
+      "parser": [
+        {
+          "intent": "search_runs",
+          "arguments": {}
+        }
+      ],
+      "routed_intent": "search_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        }
+      ],
+      "answer": "조회할 실험이 없습니다.",
+      "error": null
+    },
+    {
+      "id": "M2-1",
+      "group": "멀티턴",
+      "problem": [
+        "P4"
+      ],
+      "session": "M2",
+      "message": "Hyperparameter Tuning Experiment에서 실패한 run 보여줘",
+      "expected": "FAILED 2개: trial_2, study.",
+      "http_status": 200,
+      "elapsed_ms": 3298,
+      "parser": [
+        {
+          "intent": "search_runs",
+          "arguments": {
+            "experiment_name": "Hyperparameter Tuning Experiment"
+          }
+        },
+        {
+          "search_filters": {
+            "recent_days": null,
+            "status": "FAILED",
+            "user": null,
+            "tag_key": null,
+            "tag_value": null
+          }
+        }
+      ],
+      "routed_intent": "search_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "get_runs",
+          "args": [
+            "Hyperparameter Tuning Experiment"
+          ],
+          "kwargs": {},
+          "result_size": 35
+        },
+        {
+          "tool": "llm:search_filter_parser"
+        },
+        {
+          "tool": "list_run_metrics",
+          "args": [
+            "Hyperparameter Tuning Experiment"
+          ],
+          "kwargs": {},
+          "result_size": 2
+        }
+      ],
+      "answer": "None가 없습니다. Hyperparameter Tuning Experiment의 metric 키 목록을 조회해 주세요.",
+      "error": null
+    },
+    {
+      "id": "M2-2",
+      "group": "멀티턴",
+      "problem": [
+        "P4"
+      ],
+      "session": "M2",
+      "message": "완료된 건 몇 개야?",
+      "expected": "실험 유지, 상태를 FINISHED로 변경, 개수만: 33개.",
+      "http_status": 200,
+      "elapsed_ms": 2365,
+      "parser": [
+        {
+          "intent": "search_runs",
+          "arguments": {
+            "experiment_name": "Hyperparameter Tuning Experiment"
+          }
+        },
+        {
+          "search_filters": {
+            "recent_days": null,
+            "status": "FINISHED",
+            "user": null,
+            "tag_key": null,
+            "tag_value": null
+          }
+        }
+      ],
+      "routed_intent": "search_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "get_runs",
+          "args": [
+            "Hyperparameter Tuning Experiment"
+          ],
+          "kwargs": {},
+          "result_size": 35
+        },
+        {
+          "tool": "llm:search_filter_parser"
+        },
+        {
+          "tool": "list_run_metrics",
+          "args": [
+            "Hyperparameter Tuning Experiment"
+          ],
+          "kwargs": {},
+          "result_size": 2
+        }
+      ],
+      "answer": "None가 없습니다. Hyperparameter Tuning Experiment의 metric 키 목록을 조회해 주세요.",
+      "error": null
+    },
+    {
+      "id": "M2-3",
+      "group": "멀티턴",
+      "problem": [
+        "P4"
+      ],
+      "session": "M2",
+      "message": "상태 조건 빼고 전체는 몇 개야?",
+      "expected": "실험 유지, 상태 조건 해제, 개수만: 35개.",
+      "http_status": 200,
+      "elapsed_ms": 2281,
+      "parser": [
+        {
+          "intent": "search_runs",
+          "arguments": {
+            "experiment_name": "Hyperparameter Tuning Experiment"
+          }
+        },
+        {
+          "search_filters": {
+            "recent_days": null,
+            "status": null,
+            "user": null,
+            "tag_key": null,
+            "tag_value": null
+          }
+        }
+      ],
+      "routed_intent": "search_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "get_runs",
+          "args": [
+            "Hyperparameter Tuning Experiment"
+          ],
+          "kwargs": {},
+          "result_size": 35
+        },
+        {
+          "tool": "llm:search_filter_parser"
+        },
+        {
+          "tool": "list_run_metrics",
+          "args": [
+            "Hyperparameter Tuning Experiment"
+          ],
+          "kwargs": {},
+          "result_size": 2
+        }
+      ],
+      "answer": "None가 없습니다. Hyperparameter Tuning Experiment의 metric 키 목록을 조회해 주세요.",
+      "error": null
+    },
+    {
+      "id": "M4-1",
+      "group": "멀티턴",
+      "problem": [
+        "P4",
+        "P5"
+      ],
+      "session": "M4",
+      "message": "yolo26n-hpo-09 run의 mAP50B 값 알려줘",
+      "expected": "값 하나: 0.9062 (metric 이름을 접두사 없이 말함).",
+      "http_status": 200,
+      "elapsed_ms": 2236,
+      "parser": [
+        {
+          "intent": "get_run_info",
+          "arguments": {
+            "run_name": "yolo26n-hpo-09",
+            "metric_key": "mAP50B"
+          }
+        }
+      ],
+      "routed_intent": "get_run_info",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "find_runs",
+          "args": [],
+          "kwargs": {
+            "run_name": "yolo26n-hpo-09",
+            "run_id": null,
+            "experiment_name": null
+          },
+          "result_size": 1
+        }
+      ],
+      "answer": "`yolo26n-hpo-09` run에 `mAP50B` metric이 없습니다.",
+      "error": null
+    },
+    {
+      "id": "M4-2",
+      "group": "멀티턴",
+      "problem": [
+        "P4",
+        "P5"
+      ],
+      "session": "M4",
+      "message": "같은 run의 recall은?",
+      "expected": "run yolo26n-hpo-09 이어받음, metric recall → metrics/recallB 값 하나: 0.6613.",
+      "http_status": 200,
+      "elapsed_ms": 1327,
+      "parser": [
+        {
+          "intent": "get_run_info",
+          "arguments": {
+            "run_name": "yolo26n-hpo-09",
+            "metric_key": "recall"
+          }
+        }
+      ],
+      "routed_intent": "get_run_info",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "find_runs",
+          "args": [],
+          "kwargs": {
+            "run_name": "yolo26n-hpo-09",
+            "run_id": null,
+            "experiment_name": "ultralytics-yolo-hpo"
+          },
+          "result_size": 1
+        }
+      ],
+      "answer": "`yolo26n-hpo-09` run에 `recall` metric이 없습니다.",
+      "error": null
+    }
+  ]
+}

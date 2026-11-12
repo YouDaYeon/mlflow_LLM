@@ -1,9 +1,10 @@
 from fastapi import APIRouter
 
 from backend.app.config import settings
-from backend.app.schemas import McpHealthResponse
+from backend.app.schemas import McpHealthResponse, TrackingUriUpdateRequest
 from backend.app.services.mlflow_service import (
     get_tracking_uri as get_tracking_uri_service,
+    set_tracking_uri as set_tracking_uri_service,
     list_experiment_names,
     get_experiment as get_experiment_service,
     list_run_metrics,
@@ -32,6 +33,11 @@ async def mlflow_mcp_health_check() -> McpHealthResponse:
 @router.get("/tracking-uri")
 def get_tracking_uri():
     return get_tracking_uri_service()
+
+
+@router.put("/tracking-uri")
+def update_tracking_uri(payload: TrackingUriUpdateRequest):
+    return {"tracking_uri": set_tracking_uri_service(payload.tracking_uri)}
 
 @router.get("/names")
 def get_experiment_names():

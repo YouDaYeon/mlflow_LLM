@@ -1,5 +1,3 @@
-import re
-from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -39,52 +37,6 @@ def _to_session_item(row) -> ChatSessionListItem:
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
-
-
-def _first_present(*values: Any) -> Any:
-    for value in values:
-        if value is None:
-            continue
-        if isinstance(value, str) and not value.strip():
-            continue
-        return value
-    return None
-
-
-def _resolve_experiment_args(
-    *,
-    intent_args: dict[str, Any] | None,
-    payload: ChatRequest,
-    last_meta: dict[str, Any],
-) -> tuple[str | None, str | None, int | None, bool]:
-    """intent args → payload → 이전 assistant metadata 순으로 빈 값을 채운다."""
-    args = intent_args or {}
-    experiment_name = _first_present(
-        args.get("experiment_name"),
-        payload.experiment_name,
-        last_meta.get("experiment_name"),
-    )
-    metric_key = _first_present(
-        args.get("metric_key"),
-        payload.metric_key,
-        last_meta.get("metric_key"),
-    )
-    top_k = _first_present(args.get("top_k"), last_meta.get("top_k"))
-    if isinstance(top_k, str) and top_k.isdigit():
-        top_k = int(top_k)
-    elif top_k is not None and not isinstance(top_k, int):
-        try:
-            top_k = int(top_k)
-        except (TypeError, ValueError):
-            top_k = None
-
-    ascending_raw = _first_present(args.get("ascending"), last_meta.get("ascending"))
-    if ascending_raw is None:
-        ascending = False
-    else:
-        ascending = bool(ascending_raw)
-
-    return experiment_name, metric_key, top_k, ascending
 
 
 @router.post("/sessions", response_model=ChatSessionCreateResponse)
@@ -135,7 +87,6 @@ def get_session_messages(
                 id=row.id,
                 role=row.role,
                 content=row.content,
-                intent=row.intent,
                 metadata=row.message_metadata or {},
                 created_at=row.created_at,
             )
@@ -150,16 +101,9 @@ async def chat_with_experiment(
     db: Session = Depends(get_db),
 ) -> ChatResponse:
     # 다른 라우트 기동에 영향 없도록 chat 의존성은 실제 호출 시 로드한다.
-    from backend.app.services.chat_service import (
-        answer_experiment_question,
-        answer_report_question,
-        answer_run_question,
-        classify_intent,
-        extract_single_run_reference,
-        generate_session_title,
-        is_run_judgment_question,
-        run_with_mcp,
-    )
+    from backend.app.services.chat_request import PARSER_NAME, answer_request, parse_request
+    from backend.app.services.chat_service import generate_session_title, run_with_mcp
+    from backend.app.services.mlflow_service import start_tool_call_recording
 
     if payload.session_id is None:
         session = create_chat_session(db)
@@ -182,93 +126,41 @@ async def chat_with_experiment(
     else:
         history = list(payload.history or [])
 
-    intent, intent_args = classify_intent(payload.message, history=history)
-    last_meta = get_last_assistant_context(db, session_id=session_id)
-    experiment_name, metric_key, top_k, ascending = _resolve_experiment_args(
-        intent_args=intent_args,
-        payload=payload,
-        last_meta=last_meta,
+    # 직전 턴의 요청 구조와 답변 대상을 함께 넘겨, 파서가 조건의 유지·변경·해제를 판단하게 한다.
+    previous = get_last_assistant_context(db, session_id=session_id)
+    request = parse_request(payload.message, history=history, previous=previous)
+
+    # 이 요청에서 호출된 MLflow 조회/LLM 답변을 tool_calls로 남긴다(MCP 경로는 Agent 기록을 그대로 쓴다).
+    recorded_tool_calls = start_tool_call_recording()
+    result = answer_request(
+        request,
+        message=payload.message,
+        history=history,
+        report_text=payload.report_text,
+        ui_experiment=payload.experiment_name,
+        ui_metric=payload.metric_key,
+        previous=previous,
     )
-    guessed_run_id, guessed_run_name = extract_single_run_reference(payload.message)
-    run_name = _first_present((intent_args or {}).get("run_name"), guessed_run_name)
-    run_id = _first_present((intent_args or {}).get("run_id"), guessed_run_id)
-    if isinstance(run_name, str):
-        run_name = run_name.strip() or None
-    if isinstance(run_id, str):
-        run_id = run_id.strip() or None
-    # 이전 턴에서 이어받은 metric_key로는 run 전체를 좁히지 않는다.
-    asked_metric_key = (intent_args or {}).get("metric_key")
-    if isinstance(asked_metric_key, str):
-        asked_metric_key = asked_metric_key.strip() or None
+    if result is None:
+        # 요청 구조로 표현할 수 없는 질문(trace 등)은 MLflow MCP 에이전트가 처리한다.
+        answer, metadata = await run_with_mcp(message=payload.message, history=history)
+        metadata = {
+            **metadata,
+            # answer_request가 요청 구조로 답할 수 없다고 넘긴(None) 경우다.
+            "route": {
+                "parser": PARSER_NAME,
+                "path": ["answer_request", run_with_mcp.__name__],
+                "handler": run_with_mcp.__name__,
+            },
+            "request": request,
+        }
     else:
-        asked_metric_key = None
-
-    report_text = payload.report_text
-
-    experiment_intents = [
-        "list_experiments",
-        "list_recent_experiments",
-        "get_experiment",
-        "get_runs",
-        "get_run_info",
-        "list_metric_keys",
-        "filter_runs_by_metric",
-        "search_runs",
-    ]
-
-    is_comparison = bool(
-        re.search(r"비교|차이|versus|\bvs\b", payload.message or "", flags=re.IGNORECASE)
-    )
-    # 평가 질문, 또는 run이 있는데 실험 조회 intent가 아닌 질문은 상세 표 대신 모델이 답한다.
-    route_run_qa = bool(run_name or run_id) and not is_comparison and intent != "report_qa" and (
-        is_run_judgment_question(payload.message)
-        or intent not in experiment_intents
-    )
-    if route_run_qa:
-        answer, intent, metadata = answer_run_question(
-            payload.message,
-            experiment_name=experiment_name,
-            run_name=run_name if isinstance(run_name, str) else None,
-            run_id=run_id if isinstance(run_id, str) else None,
-            history=history,
-        )
-    elif intent in experiment_intents:
-        answer, intent, metadata = answer_experiment_question(
-            intent=intent,
-            message=payload.message,
-            experiment_name=experiment_name,
-            metric_key=metric_key,
-            top_k=top_k,
-            ascending=ascending,
-            run_name=run_name if isinstance(run_name, str) else None,
-            run_id=run_id if isinstance(run_id, str) else None,
-            asked_metric_key=asked_metric_key,
-        )
-    elif intent == "report_qa":
-        answer, intent, metadata = answer_report_question(
-            intent=intent,
-            message=payload.message,
-            report_text=report_text,
-            experiment_name=experiment_name,
-            metric_key=metric_key,
-            history=history,
-        )
-    else:
-        answer, intent, metadata = await run_with_mcp(
-            message=payload.message,
-            history=history,
-        )
+        answer, metadata = result
 
     if not isinstance(metadata, dict):
         metadata = {}
-    # 후속 턴 복원용으로 해석된 컨텍스트를 metadata에 남긴다.
-    if experiment_name and "experiment_name" not in metadata:
-        metadata["experiment_name"] = experiment_name
-    if metric_key and "metric_key" not in metadata:
-        metadata["metric_key"] = metric_key
-    if top_k is not None and "top_k" not in metadata:
-        metadata["top_k"] = top_k
-    metadata["ascending"] = ascending
+    if not metadata.get("tool_calls"):
+        metadata["tool_calls"] = list(recorded_tool_calls) or ["No tool calls"]
 
     append_chat_message(
         db,
@@ -281,7 +173,6 @@ async def chat_with_experiment(
         session_id=session_id,
         role="assistant",
         content=answer,
-        intent=intent,
         metadata=metadata,
     )
 
@@ -291,7 +182,6 @@ async def chat_with_experiment(
 
     return ChatResponse(
         answer=answer,
-        intent=intent,
         metadata=metadata,
         session_id=session_id,
     )

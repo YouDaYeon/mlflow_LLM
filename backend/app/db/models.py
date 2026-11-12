@@ -83,7 +83,6 @@ class ChatMessageRow(Base):
     )
     role: Mapped[str] = mapped_column(String(32), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    intent: Mapped[str | None] = mapped_column(String(128), nullable=True)
     message_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata",
         JSONB,

@@ -1,0 +1,764 @@
+{
+  "measured_at": "2026-10-20T16:21:08+09:00",
+  "app_base": "http://127.0.0.1:8010",
+  "ground_truth_snapshot": {
+    "experiment_count": 9,
+    "recent_names": [
+      "ultralytics-yolo-hpo",
+      "ultralytics-yolo",
+      "Timm Hub",
+      "My Application",
+      "Deep Learning Experiment"
+    ],
+    "timm_run_names": [
+      "capricious-moth-486",
+      "loud-gnat-654",
+      "mysterious-yak-903",
+      "skittish-dove-494"
+    ],
+    "hpo20_map50": 0.9017327811077811,
+    "exp1_map50": 0.9046908301509365,
+    "top_val_acc_runs": [
+      "capricious-moth-486",
+      "mysterious-yak-903",
+      "skittish-dove-494"
+    ]
+  },
+  "summary": {
+    "chat_cases": 14,
+    "pass_rate": 0.714,
+    "intent_accuracy": 0.857,
+    "slot_accuracy": 0.833,
+    "factual_accuracy": 0.714,
+    "latency_ms": {
+      "n": 13,
+      "mean_ms": 836.4,
+      "median_ms": 833.3,
+      "p95_ms": 1196.8,
+      "min_ms": 449.9,
+      "max_ms": 1550.1
+    },
+    "by_category": {
+      "experiment_lookup": {
+        "n": 3,
+        "pass_rate": 1.0,
+        "intent_accuracy": 1.0,
+        "slot_accuracy": 1.0,
+        "factual_accuracy": 1.0,
+        "latency": {
+          "n": 3,
+          "mean_ms": 909.6,
+          "median_ms": 906.6,
+          "p95_ms": 955.8,
+          "min_ms": 861.0,
+          "max_ms": 961.3
+        }
+      },
+      "judgment": {
+        "n": 1,
+        "pass_rate": 1.0,
+        "intent_accuracy": 1.0,
+        "slot_accuracy": 1.0,
+        "factual_accuracy": 1.0,
+        "latency": {
+          "n": 1,
+          "mean_ms": 1550.1,
+          "median_ms": 1550.1,
+          "p95_ms": 1550.1,
+          "min_ms": 1550.1,
+          "max_ms": 1550.1
+        }
+      },
+      "multiturn": {
+        "n": 2,
+        "pass_rate": 1.0,
+        "intent_accuracy": 1.0,
+        "slot_accuracy": 1.0,
+        "factual_accuracy": 1.0,
+        "latency": {
+          "n": 2,
+          "mean_ms": 510.8,
+          "median_ms": 510.8,
+          "p95_ms": 565.5,
+          "min_ms": 449.9,
+          "max_ms": 571.6
+        }
+      },
+      "report_qa": {
+        "n": 1,
+        "pass_rate": 0.0,
+        "intent_accuracy": 0.0,
+        "slot_accuracy": null,
+        "factual_accuracy": 0.0,
+        "latency": {
+          "n": 1,
+          "mean_ms": 719.5,
+          "median_ms": 719.5,
+          "p95_ms": 719.5,
+          "min_ms": 719.5,
+          "max_ms": 719.5
+        }
+      },
+      "robustness": {
+        "n": 1,
+        "pass_rate": 0.0,
+        "intent_accuracy": 0.0,
+        "slot_accuracy": null,
+        "factual_accuracy": 0.0,
+        "latency": {
+          "n": 0,
+          "mean_ms": null,
+          "median_ms": null,
+          "p95_ms": null,
+          "min_ms": null,
+          "max_ms": null
+        }
+      },
+      "run_lookup": {
+        "n": 4,
+        "pass_rate": 1.0,
+        "intent_accuracy": 1.0,
+        "slot_accuracy": 1.0,
+        "factual_accuracy": 1.0,
+        "latency": {
+          "n": 4,
+          "mean_ms": 837.0,
+          "median_ms": 850.4,
+          "p95_ms": 907.3,
+          "min_ms": 733.0,
+          "max_ms": 914.3
+        }
+      },
+      "run_search": {
+        "n": 2,
+        "pass_rate": 0.0,
+        "intent_accuracy": 1.0,
+        "slot_accuracy": 0.0,
+        "factual_accuracy": 0.0,
+        "latency": {
+          "n": 2,
+          "mean_ms": 752.8,
+          "median_ms": 752.8,
+          "p95_ms": 773.3,
+          "min_ms": 729.9,
+          "max_ms": 775.6
+        }
+      }
+    },
+    "api_baseline_ms": {
+      "n": 6,
+      "mean_ms": 62.1,
+      "median_ms": 45.2,
+      "p95_ms": 159.9,
+      "min_ms": 16.9,
+      "max_ms": 196.9
+    },
+    "median_overhead_ms": 756.0,
+    "report": {
+      "elapsed_ms": 10355.2,
+      "grounding_rate": 1.0,
+      "section_coverage": 0.833,
+      "passed": false,
+      "model": "gemma-4-26B-A4B-it-UD-Q8_K_XL"
+    }
+  },
+  "cases": [
+    {
+      "id": "list_experiments",
+      "turn": 1,
+      "category": "experiment_lookup",
+      "question": "실험 목록 보여줘",
+      "http_status": 200,
+      "elapsed_ms": 961.3,
+      "baseline_ms": 16.9,
+      "manual_steps": 1,
+      "intent": "list_experiments",
+      "expected_intent": "list_experiments",
+      "intent_ok": true,
+      "slots": [
+        {
+          "key": "count",
+          "expected": 9,
+          "actual": 9,
+          "ok": true
+        }
+      ],
+      "slots_ok": true,
+      "facts": [
+        {
+          "name": "experiment_count",
+          "ok": true
+        },
+        {
+          "name": "all_names_visible",
+          "ok": true
+        }
+      ],
+      "facts_ok": true,
+      "passed": true,
+      "answer_preview": "실험 목록(9개)\n- Deep Learning Experiment\n- Default\n- Hyperparameter Tuning Experiment\n- MLflow Quickstart\n- My Application\n- OpenAI_Test_Project\n- Timm Hub\n- ultralytics-yolo\n- ultralytics-yolo-hpo",
+      "session_id": "360082f5-2192-4d22-8875-904ca74ed193"
+    },
+    {
+      "id": "list_recent_experiments",
+      "turn": 1,
+      "category": "experiment_lookup",
+      "question": "최근 실험 알려줘",
+      "http_status": 200,
+      "elapsed_ms": 861.0,
+      "baseline_ms": null,
+      "manual_steps": 2,
+      "intent": "list_recent_experiments",
+      "expected_intent": "list_recent_experiments",
+      "intent_ok": true,
+      "slots": [
+        {
+          "key": "count",
+          "expected": 5,
+          "actual": 5,
+          "ok": true
+        }
+      ],
+      "slots_ok": true,
+      "facts": [
+        {
+          "name": "recent_names",
+          "ok": true
+        },
+        {
+          "name": "recent_order",
+          "ok": true
+        }
+      ],
+      "facts_ok": true,
+      "passed": true,
+      "answer_preview": "최근 실험(5개)\n- ultralytics-yolo-hpo\n- ultralytics-yolo\n- Timm Hub\n- My Application\n- Deep Learning Experiment",
+      "session_id": "0102fa23-82a9-4683-bd17-dcc6730b16ca"
+    },
+    {
+      "id": "get_experiment",
+      "turn": 1,
+      "category": "experiment_lookup",
+      "question": "Timm Hub 실험 정보 알려줘",
+      "http_status": 200,
+      "elapsed_ms": 906.6,
+      "baseline_ms": 19.6,
+      "manual_steps": 2,
+      "intent": "get_experiment",
+      "expected_intent": "get_experiment",
+      "intent_ok": true,
+      "slots": [
+        {
+          "key": "experiment_name",
+          "expected": "Timm Hub",
+          "actual": "Timm Hub",
+          "ok": true
+        }
+      ],
+      "slots_ok": true,
+      "facts": [
+        {
+          "name": "experiment_id",
+          "ok": true
+        },
+        {
+          "name": "lifecycle",
+          "ok": true
+        }
+      ],
+      "facts_ok": true,
+      "passed": true,
+      "answer_preview": "`Timm Hub` 실험 정보\n\n| Name | Experiment ID | Lifecycle Stage | Created Date | Created Time |\n|------|----------------|-----------------|--------------|--------------|\n| Timm Hub | 6 | active | 2026-04-08 | 14:04:40 |\n\n- Artifact Location: `file:C:/Users/dyyu/Desktop/dy/2026/MLflow/artifacts/6`\n- Tags: -",
+      "session_id": "5fa6679c-651a-4849-b954-f0e471a4a16c"
+    },
+    {
+      "id": "get_runs",
+      "turn": 1,
+      "category": "run_lookup",
+      "question": "Timm Hub run 목록",
+      "http_status": 200,
+      "elapsed_ms": 833.3,
+      "baseline_ms": 48.2,
+      "manual_steps": 2,
+      "intent": "get_runs",
+      "expected_intent": "get_runs",
+      "intent_ok": true,
+      "slots": [
+        {
+          "key": "experiment_name",
+          "expected": "Timm Hub",
+          "actual": "Timm Hub",
+          "ok": true
+        },
+        {
+          "key": "count",
+          "expected": 4,
+          "actual": 4,
+          "ok": true
+        }
+      ],
+      "slots_ok": true,
+      "facts": [
+        {
+          "name": "run_names",
+          "ok": true
+        }
+      ],
+      "facts_ok": true,
+      "passed": true,
+      "answer_preview": "`Timm Hub` run **4개** (미리보기 **4개**)\n\n| Name | Score | Status | Date | Time |\n|------|-------|--------|------|------|\n| capricious-moth-486 | - | FINISHED | 2026-04-10 | 14:55:24 |\n| loud-gnat-654 | - | FINISHED | 2026-04-10 | 14:54:29 |\n| mysterious-yak-903 | - | FINISHED | 2026-04-08 | 15:05:36 |\n| skittish-dove-494 | - | FINISHED | 2026-04-08 | 15:04:38 |",
+      "session_id": "6f9f14b8-5ce5-4dff-b1a2-7c60cfd88627"
+    },
+    {
+      "id": "list_metric_keys",
+      "turn": 1,
+      "category": "run_lookup",
+      "question": "Timm Hub metric key 알려줘",
+      "http_status": 200,
+      "elapsed_ms": 733.0,
+      "baseline_ms": 42.2,
+      "manual_steps": 2,
+      "intent": "list_metric_keys",
+      "expected_intent": "list_metric_keys",
+      "intent_ok": true,
+      "slots": [
+        {
+          "key": "experiment_name",
+          "expected": "Timm Hub",
+          "actual": "Timm Hub",
+          "ok": true
+        },
+        {
+          "key": "count",
+          "expected": 4,
+          "actual": 4,
+          "ok": true
+        }
+      ],
+      "slots_ok": true,
+      "facts": [
+        {
+          "name": "metric_keys",
+          "ok": true
+        }
+      ],
+      "facts_ok": true,
+      "passed": true,
+      "answer_preview": "Timm Hub metric 키 목록(4개)\n- metrics.train_acc\n- metrics.train_loss\n- metrics.val_acc\n- metrics.val_loss",
+      "session_id": "c72196a7-13b9-423c-9bea-cfeb6cfb8a97"
+    },
+    {
+      "id": "get_run_metric",
+      "turn": 1,
+      "category": "run_lookup",
+      "question": "yolo26n-hpo-20 run의 metrics/mAP50B 값은 얼마야?",
+      "http_status": 200,
+      "elapsed_ms": 914.3,
+      "baseline_ms": 196.9,
+      "manual_steps": 3,
+      "intent": "get_run_info",
+      "expected_intent": "get_run_info",
+      "intent_ok": true,
+      "slots": [
+        {
+          "key": "run_name",
+          "expected": "yolo26n-hpo-20",
+          "actual": "yolo26n-hpo-20",
+          "ok": true
+        },
+        {
+          "key": "metric_key",
+          "expected": "metrics.metrics/mAP50B",
+          "actual": "metrics.metrics/mAP50B",
+          "ok": true
+        }
+      ],
+      "slots_ok": true,
+      "facts": [
+        {
+          "name": "run_name",
+          "ok": true
+        },
+        {
+          "name": "map50",
+          "ok": true
+        }
+      ],
+      "facts_ok": true,
+      "passed": true,
+      "answer_preview": "`yolo26n-hpo-20`의 `metrics/mAP50B`는 0.901733입니다.",
+      "session_id": "e36afa19-45e6-4d73-8a89-28fdf5d353fe"
+    },
+    {
+      "id": "get_run_detail",
+      "turn": 1,
+      "category": "run_lookup",
+      "question": "Deep Learning Experiment에서 burly-kit-617 run 상세 알려줘",
+      "http_status": 200,
+      "elapsed_ms": 867.5,
+      "baseline_ms": null,
+      "manual_steps": 3,
+      "intent": "get_run_info",
+      "expected_intent": "get_run_info",
+      "intent_ok": true,
+      "slots": [
+        {
+          "key": "run_name",
+          "expected": "burly-kit-617",
+          "actual": "burly-kit-617",
+          "ok": true
+        },
+        {
+          "key": "experiment_name",
+          "expected": "Deep Learning Experiment",
+          "actual": "Deep Learning Experiment",
+          "ok": true
+        }
+      ],
+      "slots_ok": true,
+      "facts": [
+        {
+          "name": "run_name",
+          "ok": true
+        },
+        {
+          "name": "val_accuracy",
+          "ok": true
+        }
+      ],
+      "facts_ok": true,
+      "passed": true,
+      "answer_preview": "`burly-kit-617` run 정보\n\n- Experiment: `Deep Learning Experiment` (ID `4`)\n- Run name: `burly-kit-617`\n- Run ID: `19feb6c3afb24946b4d77729b1aa5b40`\n- Status: FINISHED\n- User: dyyu\n- Start: 2026-04-10 14:40:10\n- End: 2026-04-10 14:41:42\n\n**Parameters**\n\n| Key | Value |\n|-----|-------|\n| batch_size | 64 |\n| epochs | 5 |\n| hidden_units | [512, 512] |\n| learning_rate | 0.001 |\n| model_type | MLP |\n| op",
+      "session_id": "8d4dffaf-4863-46c3-888a-05aebad0aecc"
+    },
+    {
+      "id": "search_top_accuracy",
+      "turn": 1,
+      "category": "run_search",
+      "question": "Timm Hub에서 metrics.val_acc가 높은 run top 3 보여줘",
+      "http_status": 200,
+      "elapsed_ms": 775.6,
+      "baseline_ms": 48.7,
+      "manual_steps": 4,
+      "intent": "search_runs",
+      "expected_intent": "search_runs",
+      "intent_ok": true,
+      "slots": [
+        {
+          "key": "experiment_name",
+          "expected": "Timm Hub",
+          "actual": null,
+          "ok": false
+        },
+        {
+          "key": "count",
+          "expected": 3,
+          "actual": null,
+          "ok": false
+        }
+      ],
+      "slots_ok": false,
+      "facts": [
+        {
+          "name": "top3_names_in_order",
+          "ok": false
+        },
+        {
+          "name": "top3_scores",
+          "ok": false
+        },
+        {
+          "name": "names_in_answer",
+          "ok": false
+        }
+      ],
+      "facts_ok": false,
+      "passed": false,
+      "answer_preview": "조회할 실험이 없습니다.",
+      "session_id": "c8c71f37-cf4c-413b-a217-0037d1b95e0b"
+    },
+    {
+      "id": "search_lowest_loss",
+      "turn": 1,
+      "category": "run_search",
+      "question": "Timm Hub에서 metrics.val_loss가 가장 낮은 run 보여줘",
+      "http_status": 200,
+      "elapsed_ms": 729.9,
+      "baseline_ms": null,
+      "manual_steps": 4,
+      "intent": "search_runs",
+      "expected_intent": "search_runs",
+      "intent_ok": true,
+      "slots": [
+        {
+          "key": "experiment_name",
+          "expected": "Timm Hub",
+          "actual": null,
+          "ok": false
+        }
+      ],
+      "slots_ok": false,
+      "facts": [
+        {
+          "name": "lowest_run_first",
+          "ok": false
+        },
+        {
+          "name": "lowest_loss_value",
+          "ok": false
+        }
+      ],
+      "facts_ok": false,
+      "passed": false,
+      "answer_preview": "조회할 실험이 없습니다.",
+      "session_id": "5198a70f-8e20-40d7-bdda-6e082d418e74"
+    },
+    {
+      "id": "run_judgment",
+      "turn": 1,
+      "category": "judgment",
+      "question": "yolo26n-exp1 run 학습이 잘 된 편이야?",
+      "http_status": 200,
+      "elapsed_ms": 1550.1,
+      "baseline_ms": null,
+      "manual_steps": 4,
+      "intent": "mlflow_mcp",
+      "expected_intent": "mlflow_mcp",
+      "intent_ok": true,
+      "slots": [
+        {
+          "key": "run_name",
+          "expected": "yolo26n-exp1",
+          "actual": "yolo26n-exp1",
+          "ok": true
+        },
+        {
+          "key": "grounded_on_run",
+          "expected": true,
+          "actual": true,
+          "ok": true
+        }
+      ],
+      "slots_ok": true,
+      "facts": [
+        {
+          "name": "mentions_run",
+          "ok": true
+        },
+        {
+          "name": "cites_map50",
+          "ok": true
+        }
+      ],
+      "facts_ok": true,
+      "passed": true,
+      "answer_preview": "네, 학습 결과가 양호한 편입니다. 검증 데이터 기준 mAP@50가 **0.9047**, mAP@50-95가 **0.6695**로 높은 정확도를 보였기 때문입니다.",
+      "session_id": "cc19a9b1-fad4-437d-992d-fc2c4c506124"
+    },
+    {
+      "id": "report_qa",
+      "turn": 1,
+      "category": "report_qa",
+      "question": "보고서에서 val_acc가 가장 높은 run 이름과 점수를 말해줘",
+      "http_status": 200,
+      "elapsed_ms": 719.5,
+      "baseline_ms": null,
+      "manual_steps": 2,
+      "intent": "search_runs",
+      "expected_intent": "report_qa",
+      "intent_ok": false,
+      "slots": [],
+      "slots_ok": null,
+      "facts": [
+        {
+          "name": "best_run",
+          "ok": false
+        },
+        {
+          "name": "best_score",
+          "ok": false
+        }
+      ],
+      "facts_ok": false,
+      "passed": false,
+      "answer_preview": "조회할 실험이 없습니다.",
+      "session_id": "c2231313-d477-4bef-9413-e7666b7e1718"
+    },
+    {
+      "id": "missing_experiment",
+      "turn": 1,
+      "category": "robustness",
+      "question": "없는실험XYZ 실험 정보 알려줘",
+      "http_status": 404,
+      "elapsed_ms": 416.6,
+      "baseline_ms": null,
+      "manual_steps": 2,
+      "intent": null,
+      "expected_intent": "get_experiment",
+      "intent_ok": false,
+      "slots": [],
+      "slots_ok": null,
+      "facts": [
+        {
+          "name": "http_ok",
+          "ok": false
+        }
+      ],
+      "facts_ok": false,
+      "passed": false,
+      "answer_preview": "실험을 찾을 수 없습니다: 없는실험XYZ",
+      "session_id": null
+    },
+    {
+      "id": "multiturn_context",
+      "turn": 2,
+      "category": "multiturn",
+      "question": "metric key 알려줘",
+      "http_status": 200,
+      "elapsed_ms": 449.9,
+      "baseline_ms": null,
+      "manual_steps": 1,
+      "intent": "list_metric_keys",
+      "expected_intent": "list_metric_keys",
+      "intent_ok": true,
+      "slots": [
+        {
+          "key": "experiment_name",
+          "expected": "Timm Hub",
+          "actual": "Timm Hub",
+          "ok": true
+        }
+      ],
+      "slots_ok": true,
+      "facts": [
+        {
+          "name": "carries_experiment",
+          "ok": true
+        },
+        {
+          "name": "metric_keys",
+          "ok": true
+        }
+      ],
+      "facts_ok": true,
+      "passed": true,
+      "answer_preview": "Timm Hub metric 키 목록(4개)\n- metrics.train_acc\n- metrics.train_loss\n- metrics.val_acc\n- metrics.val_loss",
+      "session_id": "50b2d722-5ba7-4271-b5c5-0c43ab49700b"
+    },
+    {
+      "id": "multiturn_context_setup",
+      "turn": 1,
+      "category": "multiturn",
+      "question": "Timm Hub 실험 정보 알려줘",
+      "http_status": 200,
+      "elapsed_ms": 571.6,
+      "baseline_ms": null,
+      "manual_steps": 2,
+      "intent": "get_experiment",
+      "expected_intent": "get_experiment",
+      "intent_ok": true,
+      "slots": [
+        {
+          "key": "experiment_name",
+          "expected": "Timm Hub",
+          "actual": "Timm Hub",
+          "ok": true
+        }
+      ],
+      "slots_ok": true,
+      "facts": [
+        {
+          "name": "experiment_id",
+          "ok": true
+        }
+      ],
+      "facts_ok": true,
+      "passed": true,
+      "answer_preview": "`Timm Hub` 실험 정보\n\n| Name | Experiment ID | Lifecycle Stage | Created Date | Created Time |\n|------|----------------|-----------------|--------------|--------------|\n| Timm Hub | 6 | active | 2026-04-08 | 14:04:40 |\n\n- Artifact Location: `file:C:/Users/dyyu/Desktop/dy/2026/MLflow/artifacts/6`\n- Tags: -",
+      "session_id": "50b2d722-5ba7-4271-b5c5-0c43ab49700b"
+    }
+  ],
+  "report": {
+    "http_status": 200,
+    "elapsed_ms": 10355.2,
+    "model": "gemma-4-26B-A4B-it-UD-Q8_K_XL",
+    "experiment_name": "Timm Hub",
+    "metric_key": "metrics.val_acc",
+    "run_count": 3,
+    "checks": [
+      {
+        "name": "title",
+        "ok": true
+      },
+      {
+        "name": "section:1. 실험 개요 및 핵심 결과",
+        "ok": true
+      },
+      {
+        "name": "section:2. 실험 결과 비교",
+        "ok": true
+      },
+      {
+        "name": "section:3. 실험별 강점 및 한계",
+        "ok": true
+      },
+      {
+        "name": "section:4. 성능 차이 분석",
+        "ok": false
+      },
+      {
+        "name": "section:5. 후속 실험 계획",
+        "ok": true
+      },
+      {
+        "name": "section:6. 종합 결론",
+        "ok": true
+      },
+      {
+        "name": "run:capricious-moth-486",
+        "ok": true
+      },
+      {
+        "name": "score:capricious-moth-486",
+        "ok": true
+      },
+      {
+        "name": "run:mysterious-yak-903",
+        "ok": true
+      },
+      {
+        "name": "score:mysterious-yak-903",
+        "ok": true
+      },
+      {
+        "name": "run:skittish-dove-494",
+        "ok": true
+      },
+      {
+        "name": "score:skittish-dove-494",
+        "ok": true
+      }
+    ],
+    "value_hits": [
+      {
+        "run_name": "capricious-moth-486",
+        "name_ok": true,
+        "score_ok": true
+      },
+      {
+        "run_name": "mysterious-yak-903",
+        "name_ok": true,
+        "score_ok": true
+      },
+      {
+        "run_name": "skittish-dove-494",
+        "name_ok": true,
+        "score_ok": true
+      }
+    ],
+    "grounding_rate": 1.0,
+    "section_coverage": 0.833,
+    "passed": false,
+    "error": null
+  }
+}

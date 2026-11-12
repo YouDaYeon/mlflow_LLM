@@ -276,6 +276,7 @@ class ReportListItem(BaseModel):
     experiment_name: str
     metric_key: str
     report_title: str
+    run_count: int | None = None  # 보고서에서 비교한 run 수 (목록 표시용)
 
 
 class ReportListResponse(BaseModel):
@@ -297,7 +298,6 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     answer: str
-    intent: str
     metadata: dict[str, Any] = Field(default_factory=dict)
     session_id: UUID
 
@@ -324,7 +324,6 @@ class ChatMessageItem(BaseModel):
     id: UUID
     role: str
     content: str
-    intent: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
 
@@ -332,6 +331,10 @@ class ChatMessageItem(BaseModel):
 class ChatMessageListResponse(BaseModel):
     session_id: UUID
     items: list[ChatMessageItem]
+
+
+class TrackingUriUpdateRequest(BaseModel):
+    tracking_uri: str = Field(..., min_length=1)
 
 
 class McpHealthResponse(BaseModel):

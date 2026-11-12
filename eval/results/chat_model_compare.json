@@ -1,0 +1,301 @@
+{
+  "measured_at": "2026-10-20T16:31:26+09:00",
+  "qwen": {
+    "base": "http://127.0.0.1:8010",
+    "model": "Qwen3.6-35B-A3B",
+    "endpoint": "http://127.0.0.1:9983/v1",
+    "summary": {
+      "n": 13,
+      "mean_ms": 904.9,
+      "median_ms": 729.6,
+      "p95_ms": 1108.0,
+      "min_ms": 447.7,
+      "max_ms": 2791.7,
+      "total_ms": 11764.1
+    },
+    "cases": [
+      {
+        "id": "list_experiments",
+        "http_status": 200,
+        "elapsed_ms": 665.1,
+        "intent": "list_experiments",
+        "answer_chars": 193,
+        "answer_preview": "실험 목록(9개) - Deep Learning Experiment - Default - Hyperparameter Tuning Experiment - MLflow Quickstart - My Application - OpenAI_Test_Project - Timm Hub - ultralytics-yolo - ultraly",
+        "message": "실험 목록 보여줘"
+      },
+      {
+        "id": "list_recent_experiments",
+        "http_status": 200,
+        "elapsed_ms": 697.6,
+        "intent": "list_recent_experiments",
+        "answer_chars": 106,
+        "answer_preview": "최근 실험(5개) - ultralytics-yolo-hpo - ultralytics-yolo - Timm Hub - My Application - Deep Learning Experiment",
+        "message": "최근 실험 알려줘"
+      },
+      {
+        "id": "get_experiment",
+        "http_status": 200,
+        "elapsed_ms": 707.4,
+        "intent": "get_experiment",
+        "answer_chars": 302,
+        "answer_preview": "`Timm Hub` 실험 정보  | Name | Experiment ID | Lifecycle Stage | Created Date | Created Time | |------|----------------|-----------------|--------------|--------------| | Timm Hub | 6 ",
+        "message": "Timm Hub 실험 정보 알려줘"
+      },
+      {
+        "id": "get_runs",
+        "http_status": 200,
+        "elapsed_ms": 729.6,
+        "intent": "get_runs",
+        "answer_chars": 359,
+        "answer_preview": "`Timm Hub` run **4개** (미리보기 **4개**)  | Name | Score | Status | Date | Time | |------|-------|--------|------|------| | capricious-moth-486 | - | FINISHED | 2026-04-10 | 14:55:24 | ",
+        "message": "Timm Hub run 목록"
+      },
+      {
+        "id": "list_metric_keys",
+        "http_status": 200,
+        "elapsed_ms": 902.8,
+        "intent": "list_metric_keys",
+        "answer_chars": 102,
+        "answer_preview": "Timm Hub metric 키 목록(4개) - metrics.train_acc - metrics.train_loss - metrics.val_acc - metrics.val_loss",
+        "message": "Timm Hub metric key 알려줘"
+      },
+      {
+        "id": "get_run_metric",
+        "http_status": 200,
+        "elapsed_ms": 1108.0,
+        "intent": "get_run_info",
+        "answer_chars": 48,
+        "answer_preview": "`yolo26n-hpo-20`의 `metrics/mAP50B`는 0.901733입니다.",
+        "message": "yolo26n-hpo-20 run의 metrics/mAP50B 값은 얼마야?"
+      },
+      {
+        "id": "get_run_detail",
+        "http_status": 200,
+        "elapsed_ms": 831.4,
+        "intent": "get_run_info",
+        "answer_chars": 1039,
+        "answer_preview": "`burly-kit-617` run 정보  - Experiment: `Deep Learning Experiment` (ID `4`) - Run name: `burly-kit-617` - Run ID: `19feb6c3afb24946b4d77729b1aa5b40` - Status: FINISHED - User: dyyu -",
+        "message": "Deep Learning Experiment에서 burly-kit-617 run 상세 알려줘"
+      },
+      {
+        "id": "search_top_accuracy",
+        "http_status": 200,
+        "elapsed_ms": 735.0,
+        "intent": "search_runs",
+        "answer_chars": 13,
+        "answer_preview": "조회할 실험이 없습니다.",
+        "message": "Timm Hub에서 metrics.val_acc가 높은 run top 3 보여줘"
+      },
+      {
+        "id": "search_lowest_loss",
+        "http_status": 200,
+        "elapsed_ms": 831.7,
+        "intent": "search_runs",
+        "answer_chars": 13,
+        "answer_preview": "조회할 실험이 없습니다.",
+        "message": "Timm Hub에서 metrics.val_loss가 가장 낮은 run 보여줘"
+      },
+      {
+        "id": "run_judgment",
+        "http_status": 200,
+        "elapsed_ms": 2791.7,
+        "intent": "mlflow_mcp",
+        "answer_chars": 512,
+        "answer_preview": "결론부터 말씀드리면, **매우 잘 학습된 편**입니다. 특히 객체 탐지(Object Detection) 성능 지표가 매우 우수합니다.  주요 근거는 다음과 같습니다:  *   **높은 정확도 (Precision):** `metrics/precisionB`가 **0.899**로 높아, 모델이 예측한 박스 중 실제 정답일 확",
+        "message": "yolo26n-exp1 run 학습이 잘 된 편이야?"
+      },
+      {
+        "id": "report_qa",
+        "http_status": 200,
+        "elapsed_ms": 700.6,
+        "intent": "search_runs",
+        "answer_chars": 13,
+        "answer_preview": "조회할 실험이 없습니다.",
+        "message": "보고서에서 val_acc가 가장 높은 run 이름과 점수를 말해줘"
+      },
+      {
+        "id": "missing_experiment",
+        "http_status": 404,
+        "elapsed_ms": 435.8,
+        "intent": null,
+        "answer_chars": 22,
+        "answer_preview": "실험을 찾을 수 없습니다: 없는실험XYZ",
+        "message": "없는실험XYZ 실험 정보 알려줘"
+      },
+      {
+        "id": "multiturn",
+        "turns": [
+          {
+            "http_status": 200,
+            "elapsed_ms": 615.5,
+            "intent": "get_experiment",
+            "answer_chars": 302,
+            "answer_preview": "`Timm Hub` 실험 정보  | Name | Experiment ID | Lifecycle Stage | Created Date | Created Time | |------|----------------|-----------------|--------------|--------------| | Timm Hub | 6 ",
+            "session_id": "01d81a1f-7bb1-4b33-9268-830a6e80d6c4",
+            "turn": 1,
+            "message": "Timm Hub 실험 정보 알려줘"
+          },
+          {
+            "http_status": 200,
+            "elapsed_ms": 447.7,
+            "intent": "list_metric_keys",
+            "answer_chars": 102,
+            "answer_preview": "Timm Hub metric 키 목록(4개) - metrics.train_acc - metrics.train_loss - metrics.val_acc - metrics.val_loss",
+            "session_id": "01d81a1f-7bb1-4b33-9268-830a6e80d6c4",
+            "turn": 2,
+            "message": "metric key 알려줘"
+          }
+        ]
+      }
+    ]
+  },
+  "gemma": {
+    "base": "http://127.0.0.1:8012",
+    "model": "gemma-4-26B-A4B-it-UD-Q8_K_XL",
+    "endpoint": "http://127.0.0.1:9980/v1",
+    "summary": {
+      "n": 13,
+      "mean_ms": 982.9,
+      "median_ms": 829.8,
+      "p95_ms": 1457.5,
+      "min_ms": 385.1,
+      "max_ms": 1870.1,
+      "total_ms": 12777.4
+    },
+    "cases": [
+      {
+        "id": "list_experiments",
+        "http_status": 200,
+        "elapsed_ms": 717.1,
+        "intent": "list_experiments",
+        "answer_chars": 193,
+        "answer_preview": "실험 목록(9개) - Deep Learning Experiment - Default - Hyperparameter Tuning Experiment - MLflow Quickstart - My Application - OpenAI_Test_Project - Timm Hub - ultralytics-yolo - ultraly",
+        "message": "실험 목록 보여줘"
+      },
+      {
+        "id": "list_recent_experiments",
+        "http_status": 200,
+        "elapsed_ms": 774.7,
+        "intent": "list_recent_experiments",
+        "answer_chars": 106,
+        "answer_preview": "최근 실험(5개) - ultralytics-yolo-hpo - ultralytics-yolo - Timm Hub - My Application - Deep Learning Experiment",
+        "message": "최근 실험 알려줘"
+      },
+      {
+        "id": "get_experiment",
+        "http_status": 200,
+        "elapsed_ms": 790.3,
+        "intent": "get_experiment",
+        "answer_chars": 302,
+        "answer_preview": "`Timm Hub` 실험 정보  | Name | Experiment ID | Lifecycle Stage | Created Date | Created Time | |------|----------------|-----------------|--------------|--------------| | Timm Hub | 6 ",
+        "message": "Timm Hub 실험 정보 알려줘"
+      },
+      {
+        "id": "get_runs",
+        "http_status": 200,
+        "elapsed_ms": 800.4,
+        "intent": "get_runs",
+        "answer_chars": 359,
+        "answer_preview": "`Timm Hub` run **4개** (미리보기 **4개**)  | Name | Score | Status | Date | Time | |------|-------|--------|------|------| | capricious-moth-486 | - | FINISHED | 2026-04-10 | 14:55:24 | ",
+        "message": "Timm Hub run 목록"
+      },
+      {
+        "id": "list_metric_keys",
+        "http_status": 200,
+        "elapsed_ms": 829.8,
+        "intent": "list_metric_keys",
+        "answer_chars": 102,
+        "answer_preview": "Timm Hub metric 키 목록(4개) - metrics.train_acc - metrics.train_loss - metrics.val_acc - metrics.val_loss",
+        "message": "Timm Hub metric key 알려줘"
+      },
+      {
+        "id": "get_run_metric",
+        "http_status": 200,
+        "elapsed_ms": 1012.4,
+        "intent": "get_run_info",
+        "answer_chars": 48,
+        "answer_preview": "`yolo26n-hpo-20`의 `metrics/mAP50B`는 0.901733입니다.",
+        "message": "yolo26n-hpo-20 run의 metrics/mAP50B 값은 얼마야?"
+      },
+      {
+        "id": "get_run_detail",
+        "http_status": 200,
+        "elapsed_ms": 896.1,
+        "intent": "get_run_info",
+        "answer_chars": 1039,
+        "answer_preview": "`burly-kit-617` run 정보  - Experiment: `Deep Learning Experiment` (ID `4`) - Run name: `burly-kit-617` - Run ID: `19feb6c3afb24946b4d77729b1aa5b40` - Status: FINISHED - User: dyyu -",
+        "message": "Deep Learning Experiment에서 burly-kit-617 run 상세 알려줘"
+      },
+      {
+        "id": "search_top_accuracy",
+        "http_status": 200,
+        "elapsed_ms": 1424.1,
+        "intent": "search_runs",
+        "answer_chars": 361,
+        "answer_preview": "적용 필터: top_k:3 (metrics.val_acc 기준) | 내림차순  `Timm Hub` run **3개** (미리보기 **3개**)  | Name | Score | Status | Date | Time | |------|-------|--------|------|------| | capricious-moth-4",
+        "message": "Timm Hub에서 metrics.val_acc가 높은 run top 3 보여줘"
+      },
+      {
+        "id": "search_lowest_loss",
+        "http_status": 200,
+        "elapsed_ms": 1457.5,
+        "intent": "search_runs",
+        "answer_chars": 392,
+        "answer_preview": "적용 필터: 오름차순  `Timm Hub` run **4개** (미리보기 **4개**)  | Name | Score | Status | Date | Time | |------|-------|--------|------|------| | capricious-moth-486 | 0.1245 | FINISHED | 2026-0",
+        "message": "Timm Hub에서 metrics.val_loss가 가장 낮은 run 보여줘"
+      },
+      {
+        "id": "run_judgment",
+        "http_status": 200,
+        "elapsed_ms": 1870.1,
+        "intent": "mlflow_mcp",
+        "answer_chars": 150,
+        "answer_preview": "학습이 상당히 잘 된 편입니다. `metrics/mAP50B`가 0.904691로 매우 높고, `metrics/precisionB` 또한 0.898911로 양호한 성능을 보입니다. 다만, `metrics/recallB`는 0.654631로 정밀도에 비해 다소 낮습니다.",
+        "message": "yolo26n-exp1 run 학습이 잘 된 편이야?"
+      },
+      {
+        "id": "report_qa",
+        "http_status": 200,
+        "elapsed_ms": 1095.8,
+        "intent": "report_qa",
+        "answer_chars": 56,
+        "answer_preview": "val_acc 기준 최상위 run은 capricious-moth-486이며 점수는 0.9569입니다.",
+        "message": "보고서에서 val_acc가 가장 높은 run 이름과 점수를 말해줘"
+      },
+      {
+        "id": "missing_experiment",
+        "http_status": 404,
+        "elapsed_ms": 428.0,
+        "intent": null,
+        "answer_chars": 18,
+        "answer_preview": "실험을 찾을 수 없습니다: XYZ",
+        "message": "없는실험XYZ 실험 정보 알려줘"
+      },
+      {
+        "id": "multiturn",
+        "turns": [
+          {
+            "http_status": 200,
+            "elapsed_ms": 724.0,
+            "intent": "get_experiment",
+            "answer_chars": 302,
+            "answer_preview": "`Timm Hub` 실험 정보  | Name | Experiment ID | Lifecycle Stage | Created Date | Created Time | |------|----------------|-----------------|--------------|--------------| | Timm Hub | 6 ",
+            "session_id": "cdbaba66-081c-4e99-b2d1-eff23b9a47fe",
+            "turn": 1,
+            "message": "Timm Hub 실험 정보 알려줘"
+          },
+          {
+            "http_status": 200,
+            "elapsed_ms": 385.1,
+            "intent": "list_metric_keys",
+            "answer_chars": 102,
+            "answer_preview": "Timm Hub metric 키 목록(4개) - metrics.train_acc - metrics.train_loss - metrics.val_acc - metrics.val_loss",
+            "session_id": "cdbaba66-081c-4e99-b2d1-eff23b9a47fe",
+            "turn": 2,
+            "message": "metric key 알려줘"
+          }
+        ]
+      }
+    ]
+  }
+}

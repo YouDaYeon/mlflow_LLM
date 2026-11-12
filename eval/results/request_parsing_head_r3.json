@@ -1,0 +1,1352 @@
+{
+  "label": "head_r3",
+  "code_root": "/tmp/claude-1006/-home-dyyu-mlflow-LLM-dy/4b16936a-df81-460e-b2ab-068186ae6383/scratchpad/head-wt",
+  "measured_at": "2026-11-11T16:49:35+09:00",
+  "model": "Qwen3.6-35B-A3B",
+  "cases": [
+    {
+      "id": "A01",
+      "group": "개수·답변 범위",
+      "problem": [
+        "P3",
+        "P5"
+      ],
+      "session": null,
+      "message": "최근 실험 알려줘",
+      "expected": "최근 생성 실험 목록(기본 개수, 최신순). 이름 목록 형태.",
+      "http_status": 200,
+      "elapsed_ms": 1385,
+      "parser": [
+        {
+          "intent": "list_recent_experiments",
+          "arguments": {}
+        }
+      ],
+      "routed_intent": "list_recent_experiments",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "list_recent_experiment_names",
+          "args": [],
+          "kwargs": {
+            "limit": 5
+          },
+          "result_size": 5
+        }
+      ],
+      "answer": "최근 실험(5개)\n- ultralytics-yolo-hpo\n- ultralytics-yolo\n- Timm Hub\n- My Application\n- Deep Learning Experiment",
+      "error": null
+    },
+    {
+      "id": "A02",
+      "group": "개수·답변 범위",
+      "problem": [
+        "P3",
+        "P5"
+      ],
+      "session": null,
+      "message": "가장 최근 실험 하나 알려줘",
+      "expected": "실험 1개만: ultralytics-yolo-hpo. A01과 조회 개수·답변 범위가 달라야 한다.",
+      "http_status": 200,
+      "elapsed_ms": 906,
+      "parser": [
+        {
+          "intent": "list_recent_experiments",
+          "arguments": {
+            "top_k": 1
+          }
+        }
+      ],
+      "routed_intent": "list_recent_experiments",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "list_recent_experiment_names",
+          "args": [],
+          "kwargs": {
+            "limit": 5
+          },
+          "result_size": 5
+        }
+      ],
+      "answer": "최근 실험(5개)\n- ultralytics-yolo-hpo\n- ultralytics-yolo\n- Timm Hub\n- My Application\n- Deep Learning Experiment",
+      "error": null
+    },
+    {
+      "id": "A03",
+      "group": "개수·답변 범위",
+      "problem": [
+        "P2",
+        "P3"
+      ],
+      "session": null,
+      "message": "최근 실험 3개만 보여줘",
+      "expected": "최신순 3개: ultralytics-yolo-hpo, ultralytics-yolo, Timm Hub.",
+      "http_status": 200,
+      "elapsed_ms": 856,
+      "parser": [
+        {
+          "intent": "list_recent_experiments",
+          "arguments": {
+            "top_k": 3
+          }
+        }
+      ],
+      "routed_intent": "list_recent_experiments",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "list_recent_experiment_names",
+          "args": [],
+          "kwargs": {
+            "limit": 5
+          },
+          "result_size": 5
+        }
+      ],
+      "answer": "최근 실험(5개)\n- ultralytics-yolo-hpo\n- ultralytics-yolo\n- Timm Hub\n- My Application\n- Deep Learning Experiment",
+      "error": null
+    },
+    {
+      "id": "A04",
+      "group": "개수·답변 범위",
+      "problem": [
+        "P2",
+        "P3"
+      ],
+      "session": null,
+      "message": "가장 오래된 실험 뭐야?",
+      "expected": "생성 오름차순 1개: Default 또는 OpenAI_Test_Project(같은 시각 생성).",
+      "http_status": 200,
+      "elapsed_ms": 963,
+      "parser": [
+        {
+          "intent": "list_recent_experiments",
+          "arguments": {
+            "ascending": true,
+            "top_k": 1
+          }
+        }
+      ],
+      "routed_intent": "list_recent_experiments",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "list_recent_experiment_names",
+          "args": [],
+          "kwargs": {
+            "limit": 5
+          },
+          "result_size": 5
+        }
+      ],
+      "answer": "최근 실험(5개)\n- ultralytics-yolo-hpo\n- ultralytics-yolo\n- Timm Hub\n- My Application\n- Deep Learning Experiment",
+      "error": null
+    },
+    {
+      "id": "A05",
+      "group": "개수·답변 범위",
+      "problem": [
+        "P5"
+      ],
+      "session": null,
+      "message": "가장 최근 실험의 상세 정보 알려줘",
+      "expected": "ultralytics-yolo-hpo 1개의 상세(ID, 생성시각, artifact 위치 등).",
+      "http_status": 200,
+      "elapsed_ms": 823,
+      "parser": [
+        {
+          "intent": "get_experiment",
+          "arguments": {}
+        }
+      ],
+      "routed_intent": "get_experiment",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        }
+      ],
+      "answer": "조회할 실험이 없습니다.",
+      "error": null
+    },
+    {
+      "id": "A06",
+      "group": "개수·답변 범위",
+      "problem": [
+        "P5"
+      ],
+      "session": null,
+      "message": "실험이 총 몇 개야?",
+      "expected": "개수만: 9개. 전체 목록 나열은 불필요.",
+      "http_status": 200,
+      "elapsed_ms": 869,
+      "parser": [
+        {
+          "intent": "list_experiments",
+          "arguments": {}
+        }
+      ],
+      "routed_intent": "list_experiments",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "list_experiment_names",
+          "args": [],
+          "kwargs": {},
+          "result_size": 9
+        }
+      ],
+      "answer": "실험 목록(9개)\n- Deep Learning Experiment\n- Default\n- Hyperparameter Tuning Experiment\n- MLflow Quickstart\n- My Application\n- OpenAI_Test_Project\n- Timm Hub\n- ultralytics-yolo\n- ultralytics-yolo-hpo",
+      "error": null
+    },
+    {
+      "id": "A07",
+      "group": "개수·답변 범위",
+      "problem": [
+        "P5"
+      ],
+      "session": null,
+      "message": "ultralytics-yolo-hpo 실험의 run 이름만 나열해줘",
+      "expected": "run 20개의 이름만. 점수·상태·날짜 표는 불필요.",
+      "http_status": 200,
+      "elapsed_ms": 1082,
+      "parser": [
+        {
+          "intent": "get_runs",
+          "arguments": {
+            "experiment_name": "ultralytics-yolo-hpo"
+          }
+        }
+      ],
+      "routed_intent": "get_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "get_runs",
+          "args": [
+            "ultralytics-yolo-hpo"
+          ],
+          "kwargs": {},
+          "result_size": 20
+        }
+      ],
+      "answer": "`ultralytics-yolo-hpo` run **20개** (미리보기 **20개**)\n\n| Name | Score | Status | Date | Time |\n|------|-------|--------|------|------|\n| yolo26n-hpo-20 | - | FINISHED | 2026-10-14 | 15:11:00 |\n| yolo26n-hpo-19 | - | FINISHED | 2026-10-14 | 15:10:48 |\n| yolo26n-hpo-18 | - | FINISHED | 2026-10-14 | 15:10:32 |\n| yolo26n-hpo-17 | - | FINISHED | 2026-10-14 | 15:10:19 |\n| yolo26n-hpo-16 | - | FINISHED | 2026-10-14 | 15:10:06 |\n| yolo26n-hpo-15 | - | FINISHED | 2026-10-14 | 15:09:51 |\n| yolo26n-hpo-14 | - | FINISHED | 2026-10-14 | 15:09:39 |\n| yolo26n-hpo-13 | - | FINISHED | 2026-10-14 | 15:09:24 |\n| yolo26n-hpo-12 | - | FINISHED | 2026-10-14 | 15:09:11 |\n| yolo26n-hpo-11 | - | FINISHED | 2026-10-14 | 15:08:58 |\n| yolo26n-hpo-10 | - | FINISHED | 2026-10-14 | 15:08:43 |\n| yolo26n-hpo-09 | - | FINISHED | 2026-10-14 | 15:08:30 |\n| yolo26n-hpo-08 | - | FINISHED | 2026-10-14 | 15:08:18 |\n| yolo26n-hpo-07 | - | FINISHED | 2026-10-14 | 15:08:06 |\n| yolo26n-hpo-06 | - | FINISHED | 2026-10-14 | 15:07:53 |\n| yolo26n-hpo-05 | - | FINISHED | 2026-10-14 | 15:07:38 |\n| yolo26n-hpo-04 | - | FINISHED | 2026-10-14 | 15:07:24 |\n| yolo26n-hpo-03 | - | FINISHED | 2026-10-14 | 15:07:10 |\n| yolo26n-hpo-02 | - | FINISHED | 2026-10-14 | 15:06:56 |\n| yolo26n-hpo-01 | - | FINISHED | 2026-10-14 | 15:06:38 |",
+      "error": null
+    },
+    {
+      "id": "A08",
+      "group": "개수·답변 범위",
+      "problem": [
+        "P5"
+      ],
+      "session": null,
+      "message": "yolo26n-hpo-20 run의 metrics/mAP50B 값만 알려줘",
+      "expected": "값 하나: 0.9017. 전체 상세 표는 불필요.",
+      "http_status": 200,
+      "elapsed_ms": 1229,
+      "parser": [
+        {
+          "intent": "get_run_info",
+          "arguments": {
+            "run_name": "yolo26n-hpo-20",
+            "metric_key": "metrics/mAP50B"
+          }
+        }
+      ],
+      "routed_intent": "get_run_info",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "find_runs",
+          "args": [],
+          "kwargs": {
+            "run_name": "yolo26n-hpo-20",
+            "run_id": null,
+            "experiment_name": null
+          },
+          "result_size": 1
+        }
+      ],
+      "answer": "`yolo26n-hpo-20`의 `metrics/mAP50B`는 0.901733입니다.",
+      "error": null
+    },
+    {
+      "id": "A09",
+      "group": "개수·답변 범위",
+      "problem": [
+        "P5"
+      ],
+      "session": null,
+      "message": "yolo26n-hpo-20 run 상세 알려줘",
+      "expected": "run 전체 상세(파라미터·metric 포함).",
+      "http_status": 200,
+      "elapsed_ms": 1048,
+      "parser": [
+        {
+          "intent": "get_run_info",
+          "arguments": {
+            "run_name": "yolo26n-hpo-20"
+          }
+        }
+      ],
+      "routed_intent": "get_run_info",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "find_runs",
+          "args": [],
+          "kwargs": {
+            "run_name": "yolo26n-hpo-20",
+            "run_id": null,
+            "experiment_name": null
+          },
+          "result_size": 1
+        }
+      ],
+      "answer": "`yolo26n-hpo-20` run 정보\n\n- Experiment: `ultralytics-yolo-hpo` (ID `9`)\n- Run name: `yolo26n-hpo-20`\n- Run ID: `6c4ca958f83a46b888632cf63d737f18`\n- Status: FINISHED\n- User: dyyu\n- Start: 2026-10-14 15:11:00\n- End: 2026-10-14 15:11:07\n\n**Parameters**\n\n| Key | Value |\n|-----|-------|\n| agnostic_nms | False |\n| amp | True |\n| angle | 1.0 |\n| augment | False |\n| auto_augment | randaugment |\n| batch | 16 |\n| bgr | 0.0 |\n| box | 7.5 |\n| cache | False |\n| cfg | None |\n| classes | None |\n| close_mosaic | 10 |\n| cls | 0.5 |\n| compile | False |\n| conf | None |\n| copy_paste | 0.0 |\n| copy_paste_mode | flip |\n| cos_lr | False |\n| cutmix | 0.0 |\n| data | /home/dyyu/anaconda3/envs/mlflow310/lib/python3.10/site-packages/ultralytics/cfg/datasets/coco8.yaml |\n| degrees | 0.0 |\n| deterministic | True |\n| device | None |\n| dfl | 1.5 |\n| dnn | False |\n| dropout | 0.0 |\n| dynamic | False |\n| embed | None |\n| end2end | None |\n| epochs | 5 |\n| erasing | 0.4 |\n| exist_ok | False |\n| fliplr | 0.5 |\n| flipud | 0.0 |\n| format | torchscript |\n| fraction | 1.0 |\n| freeze | None |\n| half | False |\n| hsv_h | 0.015 |\n| hsv_s | 0.79 |\n| hsv_v | 0.472 |\n| imgsz | 640 |\n| int8 | False |\n| iou | 0.7 |\n| keras | False |\n| kobj | 1.0 |\n| line_width | None |\n| lr0 | 0.00118 |\n| lrf | 0.0119 |\n| mask_ratio | 4 |\n| max_det | 300 |\n| mixup | 0.19 |\n| mode | train |\n| model | yolo26n.pt |\n| momentum | 0.955 |\n| mosaic | 0.62 |\n| multi_scale | 0.0 |\n| name | yolo26n-hpo-202 |\n| nbs | 64 |\n| nms | False |\n| opset | None |\n| optimize | False |\n| optimizer | AdamW |\n| overlap_mask | True |\n| patience | 50 |\n| perspective | 0.0 |\n| plots | True |\n| pose | 12.0 |\n| pretrained | True |\n| profile | False |\n| project | runs/train |\n| rect | False |\n| resume | False |\n| retina_masks | False |\n| rle | 1.0 |\n| save | True |\n| save_conf | False |\n| save_crop | False |\n| save_dir | /home/dyyu/MLflow/runs/detect/runs/train/yolo26n-hpo-202 |\n| save_frames | False |\n| save_json | False |\n| save_period | -1 |\n| save_txt | False |\n| scale | 0.635 |\n| seed | 0 |\n| shear | 0.0 |\n| show | False |\n| show_boxes | True |\n| show_conf | True |\n| show_labels | True |\n| simplify | True |\n| single_cls | False |\n| source | None |\n| split | val |\n| stream_buffer | False |\n| task | detect |\n| time | None |\n| tracker | botsort.yaml |\n| translate | 0.195 |\n| val | True |\n| verbose | True |\n| vid_stride | 1 |\n| visualize | False |\n| warmup_bias_lr | 0.1 |\n| warmup_epochs | 3.0 |\n| warmup_momentum | 0.8 |\n| weight_decay | 0.000545 |\n| workers | 8 |\n| workspace | None |\n\n**Metrics**\n\n| Key | Value |\n|-----|-------|\n| lr/pg0 | 9.88934e-06 |\n| lr/pg1 | 9.88934e-06 |\n| lr/pg2 | 0.0960099 |\n| metrics/mAP50-95B | 0.668059 |\n| metrics/mAP50B | 0.901733 |\n| metrics/precisionB | 0.900907 |\n| metrics/recallB | 0.654259 |\n| train/box_loss | 1.36043 |\n| train/cls_loss | 1.29945 |\n| train/dfl_loss | 0.03448 |\n| val/box_loss | 2.89021 |\n| val/cls_loss | 5.8718 |\n| val/dfl_loss | 0.03557 |",
+      "error": null
+    },
+    {
+      "id": "A10",
+      "group": "개수·답변 범위",
+      "problem": [
+        "P5"
+      ],
+      "session": null,
+      "message": "burly-kit-617 run 핵심만 요약해줘",
+      "expected": "핵심 요약 몇 줄(주요 metric, 설정). 전체 파라미터 표 반복은 불필요.",
+      "http_status": 200,
+      "elapsed_ms": 2130,
+      "parser": [
+        {
+          "intent": "mlflow_mcp",
+          "arguments": {
+            "run_name": "burly-kit-617"
+          }
+        }
+      ],
+      "routed_intent": "mlflow_mcp",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "find_runs",
+          "args": [],
+          "kwargs": {
+            "run_name": "burly-kit-617",
+            "run_id": null,
+            "experiment_name": null
+          },
+          "result_size": 1
+        },
+        {
+          "tool": "llm:run_answer"
+        }
+      ],
+      "answer": "`burly-kit-617` run은 MLP 모델(SGD 옵티마이저, 학습률 0.001)을 5에폭 동안 학습한 결과입니다. 검증 정확도(`val_accuracy`)는 **77.95%**로, 훈련 데이터와 유사한 성능(훈련 정확도 78.08%)을 보이며 과적합은 발생하지 않았습니다.",
+      "error": null
+    },
+    {
+      "id": "A11",
+      "group": "개수·답변 범위",
+      "problem": [
+        "P5"
+      ],
+      "session": null,
+      "message": "carefree-moth-973 run 학습 잘 된 편이야?",
+      "expected": "평가: 결론 먼저 + 근거 metric(val_accuracy 77.81 등). 같은 실험 다른 run과 비교하면 더 좋음.",
+      "http_status": 200,
+      "elapsed_ms": 4231,
+      "parser": [
+        {
+          "intent": "mlflow_mcp",
+          "arguments": {
+            "run_name": "carefree-moth-973"
+          }
+        }
+      ],
+      "routed_intent": "mlflow_mcp",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "find_runs",
+          "args": [],
+          "kwargs": {
+            "run_name": "carefree-moth-973",
+            "run_id": null,
+            "experiment_name": null
+          },
+          "result_size": 1
+        },
+        {
+          "tool": "llm:run_answer"
+        }
+      ],
+      "answer": "결론부터 말씀드리면, **학습이 비교적 잘 진행되었으나 성능은 보통 수준**으로 보입니다.\n\n주요 근거는 다음과 같습니다:\n\n1.  **과적합(Overfitting) 가능성 낮음**: 훈련 정확도(`train_accuracy`: 78.31%)와 검증 정확도(`val_accuracy`: 77.81%)의 차이가 매우 작아(약 0.5%p), 모델이 훈련 데이터에 과도하게 적합되지 않고 일반화 성능을 잘 유지하고 있습니다.\n2.  **수렴 안정성**: 에포크가 5개로 짧았음에도 불구하고 손실(Loss)이 꾸준히 감소하며 정확도가 일정하게 유지되고 있어 학습 과정이 안정적이었습니다.\n\n다만, 최종 검증 정확도 약 77.8%라는 수치는 데이터셋의 난이도에 따라 '좋음'일 수도 있고 '낮음'일 수도 있으므로, 다른 실험 결과와 비교하여 상대적인 성능을 판단하는 것이 더 정확합니다.",
+      "error": null
+    },
+    {
+      "id": "B01",
+      "group": "정렬·개수·필터",
+      "problem": [
+        "P2"
+      ],
+      "session": null,
+      "message": "Timm Hub에서 val_acc 가장 높은 run 2개 알려줘",
+      "expected": "val_acc 내림차순 2개: capricious-moth-486(0.9569), mysterious-yak-903(0.9554).",
+      "http_status": 200,
+      "elapsed_ms": 1702,
+      "parser": [
+        {
+          "intent": "search_runs",
+          "arguments": {
+            "experiment_name": "Timm Hub",
+            "metric_key": "val_acc",
+            "top_k": 2,
+            "ascending": false
+          }
+        },
+        {
+          "search_filters": {
+            "recent_days": null,
+            "status": null,
+            "user": null,
+            "tag_key": null,
+            "tag_value": null
+          }
+        }
+      ],
+      "routed_intent": "search_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "get_runs",
+          "args": [
+            "Timm Hub"
+          ],
+          "kwargs": {},
+          "result_size": 4
+        },
+        {
+          "tool": "llm:search_filter_parser"
+        },
+        {
+          "tool": "list_run_metrics",
+          "args": [
+            "Timm Hub"
+          ],
+          "kwargs": {},
+          "result_size": 4
+        }
+      ],
+      "answer": "val_acc가 없습니다. Timm Hub의 metric 키 목록을 조회해 주세요.",
+      "error": null
+    },
+    {
+      "id": "B02",
+      "group": "정렬·개수·필터",
+      "problem": [
+        "P2",
+        "P7"
+      ],
+      "session": null,
+      "message": "Hyperparameter Tuning Experiment에서 error가 가장 낮은 run 3개 보여줘",
+      "expected": "error 오름차순 3개: trial_21(0.2446), trial_15(0.2465), trial_26(0.2465). error 값이 없는 FAILED/study run이 앞에 오면 안 된다.",
+      "http_status": 200,
+      "elapsed_ms": 929,
+      "parser": [
+        {
+          "intent": "search_runs",
+          "arguments": {
+            "metric_key": "error",
+            "top_k": 3,
+            "ascending": true
+          }
+        }
+      ],
+      "routed_intent": "search_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        }
+      ],
+      "answer": "조회할 실험이 없습니다.",
+      "error": null
+    },
+    {
+      "id": "B03",
+      "group": "정렬·개수·필터",
+      "problem": [
+        "P2",
+        "P7"
+      ],
+      "session": null,
+      "message": "ultralytics-yolo-hpo 실험에서 가장 최근 run 3개 보여줘",
+      "expected": "시작 시각 최신순 3개: yolo26n-hpo-20, 19, 18 (모두 같은 날짜, 시각으로 정렬). metric 순위(top_k)와 혼동하지 않아야 한다.",
+      "http_status": 200,
+      "elapsed_ms": 1842,
+      "parser": [
+        {
+          "intent": "search_runs",
+          "arguments": {
+            "experiment_name": "ultralytics-yolo-hpo",
+            "top_k": 3,
+            "ascending": false
+          }
+        },
+        {
+          "search_filters": {
+            "recent_days": null,
+            "status": null,
+            "user": null,
+            "tag_key": null,
+            "tag_value": null
+          }
+        }
+      ],
+      "routed_intent": "search_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "get_runs",
+          "args": [
+            "ultralytics-yolo-hpo"
+          ],
+          "kwargs": {},
+          "result_size": 20
+        },
+        {
+          "tool": "llm:search_filter_parser"
+        }
+      ],
+      "answer": "top_k 검색에는 metric_key 선택이 필요합니다. metric을 선택한 뒤 다시 시도해 주세요.",
+      "error": null
+    },
+    {
+      "id": "B04",
+      "group": "정렬·개수·필터",
+      "problem": [
+        "P2",
+        "P7"
+      ],
+      "session": null,
+      "message": "Hyperparameter Tuning Experiment에서 실패한 run 보여줘",
+      "expected": "status=FAILED 2개: trial_2, study. metric 없이도 검색되어야 한다.",
+      "http_status": 200,
+      "elapsed_ms": 1574,
+      "parser": [
+        {
+          "intent": "search_runs",
+          "arguments": {
+            "experiment_name": "Hyperparameter Tuning Experiment"
+          }
+        },
+        {
+          "search_filters": {
+            "recent_days": null,
+            "status": "FAILED",
+            "user": null,
+            "tag_key": null,
+            "tag_value": null
+          }
+        }
+      ],
+      "routed_intent": "search_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "get_runs",
+          "args": [
+            "Hyperparameter Tuning Experiment"
+          ],
+          "kwargs": {},
+          "result_size": 35
+        },
+        {
+          "tool": "llm:search_filter_parser"
+        },
+        {
+          "tool": "list_run_metrics",
+          "args": [
+            "Hyperparameter Tuning Experiment"
+          ],
+          "kwargs": {},
+          "result_size": 2
+        }
+      ],
+      "answer": "None가 없습니다. Hyperparameter Tuning Experiment의 metric 키 목록을 조회해 주세요.",
+      "error": null
+    },
+    {
+      "id": "B05",
+      "group": "정렬·개수·필터",
+      "problem": [
+        "P5",
+        "P7"
+      ],
+      "session": null,
+      "message": "ultralytics-yolo-hpo에서 최근 30일 안에 돌린 run 몇 개야?",
+      "expected": "기간 필터(30일) 적용 후 개수만: 20개.",
+      "http_status": 200,
+      "elapsed_ms": 1830,
+      "parser": [
+        {
+          "intent": "search_runs",
+          "arguments": {
+            "experiment_name": "ultralytics-yolo-hpo",
+            "top_k": 3
+          }
+        },
+        {
+          "search_filters": {
+            "recent_days": 30,
+            "status": null,
+            "user": null,
+            "tag_key": null,
+            "tag_value": null
+          }
+        }
+      ],
+      "routed_intent": "search_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "get_runs",
+          "args": [
+            "ultralytics-yolo-hpo"
+          ],
+          "kwargs": {},
+          "result_size": 20
+        },
+        {
+          "tool": "llm:search_filter_parser"
+        }
+      ],
+      "answer": "top_k 검색에는 metric_key 선택이 필요합니다. metric을 선택한 뒤 다시 시도해 주세요.",
+      "error": null
+    },
+    {
+      "id": "B06",
+      "group": "정렬·개수·필터",
+      "problem": [
+        "P6"
+      ],
+      "session": null,
+      "message": "Timm Hub에서 f1_score 높은 run 3개 보여줘",
+      "expected": "f1_score metric이 없다고 안내하고 사용 가능한 metric(val_acc 등)을 제시. 다른 metric으로 몰래 대체 금지.",
+      "http_status": 200,
+      "elapsed_ms": 1030,
+      "parser": [
+        {
+          "intent": "search_runs",
+          "arguments": {
+            "metric_key": "f1_score",
+            "top_k": 3,
+            "ascending": false
+          }
+        }
+      ],
+      "routed_intent": "search_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        }
+      ],
+      "answer": "조회할 실험이 없습니다.",
+      "error": null
+    },
+    {
+      "id": "C01",
+      "group": "복합 요청",
+      "problem": [
+        "P1",
+        "P6"
+      ],
+      "session": null,
+      "message": "Timm Hub에서 val_acc 기준 최고 run과 최저 run을 비교해줘",
+      "expected": "최고 capricious-moth-486(0.9569) vs 최저 loud-gnat-654(0.9460) 비교.",
+      "http_status": 200,
+      "elapsed_ms": 18516,
+      "parser": [
+        {
+          "intent": "mlflow_mcp",
+          "arguments": {
+            "run_name": "val_acc",
+            "metric_key": "val_acc"
+          }
+        }
+      ],
+      "routed_intent": "mlflow_mcp",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "mcp:search_experiments",
+          "args": {}
+        },
+        {
+          "tool": "mcp:list_runs",
+          "args": {
+            "experiment_id": "6",
+            "view": "active_only"
+          }
+        },
+        {
+          "tool": "mcp:describe_run",
+          "args": {
+            "run_id": "a04dbb2b0522470ba76d82373d3af112"
+          }
+        },
+        {
+          "tool": "mcp:describe_run",
+          "args": {
+            "run_id": "69a5f1034929466d9f9fa8e70abe17fd"
+          }
+        },
+        {
+          "tool": "mcp:describe_run",
+          "args": {
+            "run_id": "1d34c5f2722b47bf9131e9e81b1ea288"
+          }
+        },
+        {
+          "tool": "mcp:describe_run",
+          "args": {
+            "run_id": "595479baa074474594f009de23d50926"
+          }
+        }
+      ],
+      "answer": "Timm Hub 실험(Timm Experiment)에서 `val_acc` 기준 최고와 최저 run을  비교하면 다음과 같습니다.\n\n### 🏆 최고 성능 run: capricious-moth-486\n*   **Model**: `hf-hub:nateraw/resnet50-oxford-iiit-pet`\n*   **Val Acc**: **0.9569**\n*   **Train Acc**: 0.94704\n\n### 📉 최저 성능 run: loud-gnat-654\n*   **Model**: `hf-hub:nateraw/resnet50-oxford-iiit-pet`\n*   **Val Acc**: **0.946**\n*   **Train Acc**: 0.83844\n\n### 📊 비교 요약\n두 run 모두 같은 모델(`resnet50-oxford-iiit-pet`)을 동일한 설정(LR: 0.0001, Optimizer: AdamW, Epochs: 2)로 실행한 결과입니다. 하지만 최고 performance를 기록한 `capricious-moth-486`는 학습 손실(`train_loss`: 0.163)이 더 낮고, 학습 정확도(`train_acc`) 또한 약 **0.95** 수준을 보인 반면, 최저 performance를 기록한 `loud-gnat-654`는 학습 손실이 두 배 이상 높았으며(0.526), 학습 정확도가 약 **0.83**로 크게 떨어진 것을 알 수 있습니다. \n\n즉, 같은 환경에서 실행했음에도 불구하고 `train_acc`가 높은 run이 결국 validation accuracy(`val_acc`)에서도 더 좋은 성능을 보였습니다.\n\n**순서대로 정리된 val_acc 순위:**\n1.  capricious-moth-486: **0.9569** (최고)\n2.  mysterious-yak-903: 0.9554\n3.  skittish-dove-494: 0.9467\n4.  loud-gnat-654: **0.9460** (최저)",
+      "error": null
+    },
+    {
+      "id": "C02",
+      "group": "복합 요청",
+      "problem": [
+        "P1",
+        "P6"
+      ],
+      "session": null,
+      "message": "가장 최근 실험에서 mAP50B가 제일 높은 run 알려줘",
+      "expected": "최근 실험(ultralytics-yolo-hpo) 선택 → mAP50B 최고 1개: yolo26n-hpo-09(0.9062).",
+      "http_status": 200,
+      "elapsed_ms": 1237,
+      "parser": [
+        {
+          "intent": "search_runs",
+          "arguments": {
+            "metric_key": "mAP50B",
+            "top_k": 1,
+            "ascending": false
+          }
+        }
+      ],
+      "routed_intent": "search_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        }
+      ],
+      "answer": "조회할 실험이 없습니다.",
+      "error": null
+    },
+    {
+      "id": "C03",
+      "group": "복합 요청",
+      "problem": [
+        "P1",
+        "P6"
+      ],
+      "session": null,
+      "message": "yolo26n-hpo-09와 yolo26n-hpo-20의 mAP50B 차이 알려줘",
+      "expected": "두 run 값(0.9062, 0.9017)과 차이(약 0.0044).",
+      "http_status": 200,
+      "elapsed_ms": 14185,
+      "parser": [
+        {
+          "intent": "mlflow_mcp",
+          "arguments": {
+            "run_name": "yolo26n-hpo-09",
+            "metric_key": "metrics/mAP50B"
+          }
+        }
+      ],
+      "routed_intent": "mlflow_mcp",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "mcp:search_experiments",
+          "args": {
+            "view": "active_only"
+          }
+        },
+        {
+          "tool": "mcp:list_runs",
+          "args": {
+            "experiment_id": "8",
+            "view": "active_only"
+          }
+        },
+        {
+          "tool": "mcp:list_runs",
+          "args": {
+            "experiment_id": "9",
+            "view": "active_only"
+          }
+        },
+        {
+          "tool": "mcp:describe_run",
+          "args": {
+            "run_id": "7b93cd9388cd42b09199659eef5fa7ad"
+          }
+        },
+        {
+          "tool": "mcp:describe_run",
+          "args": {
+            "run_id": "6c4ca958f83a46b888632cf63d737f18"
+          }
+        }
+      ],
+      "answer": "`yolo26n-hpo-09`와 `yolo26n-hpo-20`의 mAP50B는 다음과 같습니다.\n\n*   **yolo26n-hpo-09**: 0.90617\n*   **yolo26n-hpo-20**: 0.90173\n\n두 항목 간의 mAP50B 차이는 약 **-0.00444**입니다. (yolo26n-hpo-20이 더 낮은 값을 보입니다.)",
+      "error": null
+    },
+    {
+      "id": "C04",
+      "group": "복합 요청",
+      "problem": [
+        "P1"
+      ],
+      "session": null,
+      "message": "보고서 기준으로 최근 run 두 개를 비교해줘",
+      "expected": "보고서 근거로 yolo26n-hpo-20 vs yolo26n-hpo-19 비교(0.9017 vs 0.9013, 차이는 변동 범위 안).",
+      "http_status": 200,
+      "elapsed_ms": 17702,
+      "parser": [
+        {
+          "intent": "mlflow_mcp",
+          "arguments": {}
+        }
+      ],
+      "routed_intent": "mlflow_mcp",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "mcp:search_experiments",
+          "args": {
+            "max_results": 10
+          }
+        },
+        {
+          "tool": "mcp:list_runs",
+          "args": {
+            "experiment_id": "9",
+            "view": "all"
+          }
+        },
+        {
+          "tool": "mcp:list_runs",
+          "args": {
+            "experiment_id": "8",
+            "view": "all"
+          }
+        },
+        {
+          "tool": "mcp:describe_run",
+          "args": {
+            "run_id": "6c4ca958f83a46b888632cf63d737f18"
+          }
+        },
+        {
+          "tool": "mcp:describe_run",
+          "args": {
+            "run_id": "b5b9fc88bcc9417ea394d002cf0d3386"
+          }
+        }
+      ],
+      "answer": "최근 두 개의 HPO(Latin Hypercube 검색) run을 비교해 드리겠습니다. **\"yolo26n-hpo-19\" vs \"yolo26n-hpo-20\"**\n\n---\n\n## 📊 핵심 성능 지표 (Validation Metrics) 비교\n\n| 항목 | hpo-19 | hpo-20 | 차이 (+/-) |\n|--------|--------|--------|-------------|\n| PrecisionB | 0.9013 | 0.9009 | ▲ -0.0004 |\n| RecallB | 0.6530 | **0.6542** | +0.0012 |\n| mAP@50 (Box) | 0.9012 | **0.9017** | +0.0005 |\n| **mAP@50-95 (Box)** | 0.6677 | **0.6680** | **+0.0003** |\n\n---\n\n## 🔥 Loss Train/Val 비교\n\n| 항목 | hpo-19 | hpo-20 | 차이 |\n|------|--------|--------|-------|\n| train/box_loss | 1.5250 | **1.3604** | ▼ -0.1646 |\n| train/cls_loss | **1.9124** | **1.2994** | ▼ -0.6130 |\n| val/box_loss | **2.4908** | 2.8902 | ▲ +0.3994 |\n| val/cls_loss | **3.2150** | 5.8718 | ▲ +2.6568 |\n\n---\n\n## ⚙️ 최적화된 파라미터 차이 (HPO 결과)\n\n| 하이퍼파라미터 | hpo-19 | hpo-20 |\n|----------------|--------|--------|\n| **lr0** (초기 학습률) | 0.00116 | **0.00118** ▲ |\n| **lrf** (최종 lr 비율) | 0.0118 | **0.0119** ▲ |\n| momentum | 0.953 | **0.955** ▲ |\n| weight_decay | 0.00054 | 0.000545 ▲ |\n\n---\n\n## 💡 분석 요약\n\nhpo-20이 전체적으로 **미약하게 더 좋은 최종 성능**(mAP@50-95: 0.6680 vs 0.6677)을 보였습니다. 주요 특징은:\n\n1. **학습 손실이 매우 낮음**: train_cls_loss가 hpo-19 대비 **40% 가까이 감소**했으며, train_box_loss 또한 낮아졌습니다. 이는 더 효율적인 수렴을 의미합니다.\n2. **과적합 징후**: 반면 val/cls_loss가 hpo-19 대비 약 1.8배 증가했으므로, 학습 데이터에 대해 약간 더 과적합되고 있을 가능성이 있습니다. 하지만 여전히 mAP는 안정적으로 유지되었습니다.\n3. **파라미터 방향**: 초기 학습률(lr0)과 모멘텀(momentum)이 미세하게 높아진 것이 성능 개선에 기여한 것으로 보입니다.\n\n전반적으로 두 실험은 거의 유사한 수준이지만, **hpo-20이 약간의 우위**를 점했습니다.",
+      "error": null
+    },
+    {
+      "id": "D01",
+      "group": "모호·미지원",
+      "problem": [
+        "P6"
+      ],
+      "session": null,
+      "message": "그 run 성능 어때?",
+      "expected": "새 대화라 대상 run이 없다. 어떤 run인지 확인 질문.",
+      "http_status": 500,
+      "elapsed_ms": 13046,
+      "parser": [
+        {
+          "intent": "mlflow_mcp",
+          "arguments": {}
+        }
+      ],
+      "routed_intent": null,
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        }
+      ],
+      "answer": null,
+      "error": {
+        "detail": "Internal Server Error"
+      }
+    },
+    {
+      "id": "D02",
+      "group": "모호·미지원",
+      "problem": [
+        "P6"
+      ],
+      "session": null,
+      "message": "성능 제일 좋은 run 알려줘",
+      "expected": "실험·기준 metric이 없다. 확인 질문, 또는 가정을 명시하고 답.",
+      "http_status": 200,
+      "elapsed_ms": 1034,
+      "parser": [
+        {
+          "intent": "search_runs",
+          "arguments": {}
+        }
+      ],
+      "routed_intent": "search_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        }
+      ],
+      "answer": "조회할 실험이 없습니다.",
+      "error": null
+    },
+    {
+      "id": "D03",
+      "group": "모호·미지원",
+      "problem": [
+        "P6"
+      ],
+      "session": null,
+      "message": "ultralytics-yolo-hpo 실험 삭제해줘",
+      "expected": "지원 범위 밖(조회 전용)이라고 안내. 실제 삭제 시도 금지.",
+      "http_status": 200,
+      "elapsed_ms": 7225,
+      "parser": [
+        {
+          "intent": "mlflow_mcp",
+          "arguments": {
+            "experiment_name": "ultralytics-yolo-hpo"
+          }
+        }
+      ],
+      "routed_intent": "mlflow_mcp",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "mcp:search_experiments",
+          "args": {}
+        },
+        {
+          "tool": "mcp:get_experiment",
+          "args": {
+            "experiment_id": "9"
+          }
+        }
+      ],
+      "answer": "죄송합니다. 제공된 도구에는 실험을 삭제하는 기능이 포함되어 있습니다. 현재 사용 가능한 MCP 도구는 실험 및 trace 조회, run 정보 확인 등 읽기 전용(조회) 작업만 지원합니다.\n\n실험 `ultralytics-yolo-hpo`(ID: 9)를 삭제하려면 MLflow CLI 또는 SDK를 사용해야 합니다. 예를 들어, 터미널에서 다음 명령어를 실행하시면 됩니다:\n\n```bash\nmlflow experiments delete -i 9\n```\n\n또는 Python 스크립트에서 다음과 같이 사용할 수 있습니다:\n\n```python\nimport mlflow\nmlflow.set_tracking_uri(\"your_tracking_uri\")  # 필요시 설정\nmlflow.delete_experiment(9)\n```",
+      "error": null
+    },
+    {
+      "id": "M1-1",
+      "group": "멀티턴",
+      "problem": [
+        "P4"
+      ],
+      "session": "M1",
+      "message": "Timm Hub run 중 val_acc 상위 2개 보여줘",
+      "expected": "val_acc 내림차순 2개.",
+      "http_status": 200,
+      "elapsed_ms": 1426,
+      "parser": [
+        {
+          "intent": "search_runs",
+          "arguments": {
+            "experiment_name": "Timm Hub",
+            "metric_key": "val_acc",
+            "top_k": 2,
+            "ascending": false
+          }
+        },
+        {
+          "search_filters": {
+            "recent_days": null,
+            "status": null,
+            "user": null,
+            "tag_key": null,
+            "tag_value": null
+          }
+        }
+      ],
+      "routed_intent": "search_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "get_runs",
+          "args": [
+            "Timm Hub"
+          ],
+          "kwargs": {},
+          "result_size": 4
+        },
+        {
+          "tool": "llm:search_filter_parser"
+        },
+        {
+          "tool": "list_run_metrics",
+          "args": [
+            "Timm Hub"
+          ],
+          "kwargs": {},
+          "result_size": 4
+        }
+      ],
+      "answer": "val_acc가 없습니다. Timm Hub의 metric 키 목록을 조회해 주세요.",
+      "error": null
+    },
+    {
+      "id": "M1-2",
+      "group": "멀티턴",
+      "problem": [
+        "P4"
+      ],
+      "session": "M1",
+      "message": "전체 run 보여줘",
+      "expected": "실험(Timm Hub)은 유지, 개수 제한(2) 해제 → run 4개 전부.",
+      "http_status": 200,
+      "elapsed_ms": 865,
+      "parser": [
+        {
+          "intent": "search_runs",
+          "arguments": {}
+        },
+        {
+          "search_filters": {
+            "recent_days": null,
+            "status": null,
+            "user": null,
+            "tag_key": null,
+            "tag_value": null
+          }
+        }
+      ],
+      "routed_intent": "search_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "get_runs",
+          "args": [
+            "Timm Hub"
+          ],
+          "kwargs": {},
+          "result_size": 4
+        },
+        {
+          "tool": "llm:search_filter_parser"
+        },
+        {
+          "tool": "list_run_metrics",
+          "args": [
+            "Timm Hub"
+          ],
+          "kwargs": {},
+          "result_size": 4
+        }
+      ],
+      "answer": "val_acc가 없습니다. Timm Hub의 metric 키 목록을 조회해 주세요.",
+      "error": null
+    },
+    {
+      "id": "M1-3",
+      "group": "멀티턴",
+      "problem": [
+        "P4"
+      ],
+      "session": "M1",
+      "message": "그 중에 val_loss가 제일 낮은 건?",
+      "expected": "Timm Hub 유지, metric을 val_loss로 변경, 오름차순 1개.",
+      "http_status": 200,
+      "elapsed_ms": 990,
+      "parser": [
+        {
+          "intent": "search_runs",
+          "arguments": {
+            "experiment_name": "Timm Hub",
+            "metric_key": "val_loss",
+            "top_k": 1,
+            "ascending": true
+          }
+        },
+        {
+          "search_filters": {
+            "recent_days": null,
+            "status": null,
+            "user": null,
+            "tag_key": null,
+            "tag_value": null
+          }
+        }
+      ],
+      "routed_intent": "search_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "get_runs",
+          "args": [
+            "Timm Hub"
+          ],
+          "kwargs": {},
+          "result_size": 4
+        },
+        {
+          "tool": "llm:search_filter_parser"
+        },
+        {
+          "tool": "list_run_metrics",
+          "args": [
+            "Timm Hub"
+          ],
+          "kwargs": {},
+          "result_size": 4
+        }
+      ],
+      "answer": "val_loss가 없습니다. Timm Hub의 metric 키 목록을 조회해 주세요.",
+      "error": null
+    },
+    {
+      "id": "M2-1",
+      "group": "멀티턴",
+      "problem": [
+        "P4"
+      ],
+      "session": "M2",
+      "message": "Hyperparameter Tuning Experiment에서 실패한 run 보여줘",
+      "expected": "FAILED 2개: trial_2, study.",
+      "http_status": 200,
+      "elapsed_ms": 1258,
+      "parser": [
+        {
+          "intent": "search_runs",
+          "arguments": {
+            "experiment_name": "Hyperparameter Tuning Experiment"
+          }
+        },
+        {
+          "search_filters": {
+            "recent_days": null,
+            "status": "FAILED",
+            "user": null,
+            "tag_key": null,
+            "tag_value": null
+          }
+        }
+      ],
+      "routed_intent": "search_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "get_runs",
+          "args": [
+            "Hyperparameter Tuning Experiment"
+          ],
+          "kwargs": {},
+          "result_size": 35
+        },
+        {
+          "tool": "llm:search_filter_parser"
+        },
+        {
+          "tool": "list_run_metrics",
+          "args": [
+            "Hyperparameter Tuning Experiment"
+          ],
+          "kwargs": {},
+          "result_size": 2
+        }
+      ],
+      "answer": "None가 없습니다. Hyperparameter Tuning Experiment의 metric 키 목록을 조회해 주세요.",
+      "error": null
+    },
+    {
+      "id": "M2-2",
+      "group": "멀티턴",
+      "problem": [
+        "P4"
+      ],
+      "session": "M2",
+      "message": "완료된 건 몇 개야?",
+      "expected": "실험 유지, 상태를 FINISHED로 변경, 개수만: 33개.",
+      "http_status": 200,
+      "elapsed_ms": 1008,
+      "parser": [
+        {
+          "intent": "search_runs",
+          "arguments": {
+            "experiment_name": "Hyperparameter Tuning Experiment"
+          }
+        },
+        {
+          "search_filters": {
+            "recent_days": null,
+            "status": "FINISHED",
+            "user": null,
+            "tag_key": null,
+            "tag_value": null
+          }
+        }
+      ],
+      "routed_intent": "search_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "get_runs",
+          "args": [
+            "Hyperparameter Tuning Experiment"
+          ],
+          "kwargs": {},
+          "result_size": 35
+        },
+        {
+          "tool": "llm:search_filter_parser"
+        },
+        {
+          "tool": "list_run_metrics",
+          "args": [
+            "Hyperparameter Tuning Experiment"
+          ],
+          "kwargs": {},
+          "result_size": 2
+        }
+      ],
+      "answer": "None가 없습니다. Hyperparameter Tuning Experiment의 metric 키 목록을 조회해 주세요.",
+      "error": null
+    },
+    {
+      "id": "M3-1",
+      "group": "멀티턴",
+      "problem": [
+        "P4"
+      ],
+      "session": "M3",
+      "message": "가장 최근 실험 하나 알려줘",
+      "expected": "ultralytics-yolo-hpo 1개.",
+      "http_status": 200,
+      "elapsed_ms": 657,
+      "parser": [
+        {
+          "intent": "list_recent_experiments",
+          "arguments": {
+            "top_k": 1
+          }
+        }
+      ],
+      "routed_intent": "list_recent_experiments",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "list_recent_experiment_names",
+          "args": [],
+          "kwargs": {
+            "limit": 5
+          },
+          "result_size": 5
+        }
+      ],
+      "answer": "최근 실험(5개)\n- ultralytics-yolo-hpo\n- ultralytics-yolo\n- Timm Hub\n- My Application\n- Deep Learning Experiment",
+      "error": null
+    },
+    {
+      "id": "M3-2",
+      "group": "멀티턴",
+      "problem": [
+        "P4"
+      ],
+      "session": "M3",
+      "message": "그 실험 run 중 최근 3개만 보여줘",
+      "expected": "실험 ultralytics-yolo-hpo 이어받음 → 시작 최신순 3개: yolo26n-hpo-20, 19, 18.",
+      "http_status": 200,
+      "elapsed_ms": 813,
+      "parser": [
+        {
+          "intent": "get_runs",
+          "arguments": {
+            "experiment_name": "ultralytics-yolo-hpo",
+            "top_k": 3,
+            "ascending": false
+          }
+        }
+      ],
+      "routed_intent": "get_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser"
+        },
+        {
+          "tool": "get_runs",
+          "args": [
+            "ultralytics-yolo-hpo"
+          ],
+          "kwargs": {},
+          "result_size": 20
+        }
+      ],
+      "answer": "`ultralytics-yolo-hpo` run **20개** (미리보기 **20개**)\n\n| Name | Score | Status | Date | Time |\n|------|-------|--------|------|------|\n| yolo26n-hpo-20 | - | FINISHED | 2026-10-14 | 15:11:00 |\n| yolo26n-hpo-19 | - | FINISHED | 2026-10-14 | 15:10:48 |\n| yolo26n-hpo-18 | - | FINISHED | 2026-10-14 | 15:10:32 |\n| yolo26n-hpo-17 | - | FINISHED | 2026-10-14 | 15:10:19 |\n| yolo26n-hpo-16 | - | FINISHED | 2026-10-14 | 15:10:06 |\n| yolo26n-hpo-15 | - | FINISHED | 2026-10-14 | 15:09:51 |\n| yolo26n-hpo-14 | - | FINISHED | 2026-10-14 | 15:09:39 |\n| yolo26n-hpo-13 | - | FINISHED | 2026-10-14 | 15:09:24 |\n| yolo26n-hpo-12 | - | FINISHED | 2026-10-14 | 15:09:11 |\n| yolo26n-hpo-11 | - | FINISHED | 2026-10-14 | 15:08:58 |\n| yolo26n-hpo-10 | - | FINISHED | 2026-10-14 | 15:08:43 |\n| yolo26n-hpo-09 | - | FINISHED | 2026-10-14 | 15:08:30 |\n| yolo26n-hpo-08 | - | FINISHED | 2026-10-14 | 15:08:18 |\n| yolo26n-hpo-07 | - | FINISHED | 2026-10-14 | 15:08:06 |\n| yolo26n-hpo-06 | - | FINISHED | 2026-10-14 | 15:07:53 |\n| yolo26n-hpo-05 | - | FINISHED | 2026-10-14 | 15:07:38 |\n| yolo26n-hpo-04 | - | FINISHED | 2026-10-14 | 15:07:24 |\n| yolo26n-hpo-03 | - | FINISHED | 2026-10-14 | 15:07:10 |\n| yolo26n-hpo-02 | - | FINISHED | 2026-10-14 | 15:06:56 |\n| yolo26n-hpo-01 | - | FINISHED | 2026-10-14 | 15:06:38 |",
+      "error": null
+    }
+  ]
+}
