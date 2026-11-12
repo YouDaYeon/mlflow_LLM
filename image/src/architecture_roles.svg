@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1150" viewBox="0 0 1600 1150" font-family="NanumGothic, 'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#52514e"/>
+    </marker>
+    <marker id="ahv" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6250d6"/>
+    </marker>
+    <marker id="ahb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2a78d6"/>
+    </marker>
+    <marker id="aho" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b5651d"/>
+    </marker>
+  </defs>
+  <rect width="1600" height="1150" rx="16" fill="#fcfcfb"/>
+
+  <!-- title -->
+  <text x="40" y="62" font-size="34" font-weight="700" fill="#0b0b0b">실험 데이터에 근거한 답변을 위한 3단계 처리 구조</text>
+  <text x="40" y="100" font-size="20" fill="#52514e">LLM이 질문을 해석하고, 코드가 원본 데이터를 조회·계산한 뒤, 그 결과를 바탕으로 답변을 작성합니다.</text>
+
+  <!-- user question (input, no number) -->
+  <rect x="40" y="190" width="290" height="110" rx="14" fill="#ffffff" stroke="#0b0b0b" stroke-opacity="0.35" stroke-width="2"/>
+  <text x="185" y="232" font-size="22" font-weight="700" fill="#0b0b0b" text-anchor="middle">사용자 질문</text>
+  <text x="185" y="262" font-size="16" fill="#52514e" text-anchor="middle">Streamlit 챗봇 :8501</text>
+  <text x="185" y="286" font-size="15" fill="#52514e" text-anchor="middle">자연어 질문 + 대화 세션</text>
+  <!-- FastAPI container -->
+  <rect x="360" y="140" width="820" height="660" rx="16" fill="#ffffff" stroke="#0b0b0b" stroke-opacity="0.2" stroke-width="2"/>
+  <line x1="330" y1="245" x2="386" y2="245" stroke="#52514e" stroke-width="2" marker-end="url(#ah)"/>
+  <text x="384" y="174" font-size="20" font-weight="700" fill="#0b0b0b">FastAPI :8010</text>
+  <text x="530" y="174" font-size="15" fill="#52514e">POST /chat/ask</text>
+
+  <!-- ① -->
+  <rect x="390" y="190" width="760" height="110" rx="12" fill="#f0eefc" stroke="#6250d6" stroke-width="2"/>
+  <rect x="410" y="206" width="58" height="28" rx="14" fill="#6250d6"/>
+  <text x="439" y="226" font-size="15" font-weight="700" fill="#ffffff" text-anchor="middle">LLM</text>
+  <text x="482" y="228" font-size="22" font-weight="700" fill="#0b0b0b">① 질문 구조화</text>
+  <text x="640" y="228" font-size="15" fill="#52514e">parse_request</text>
+  <text x="412" y="262" font-size="17" fill="#0b0b0b">질문 + 직전 대화 → 대상 · 작업 · 조건을 필드로 나눈 요청 JSON (LLM 1회 호출)</text>
+  <text x="412" y="288" font-size="15" fill="#52514e">질문에 없는 값(개수, metric, 필터)은 추측하지 않고 비워 둔다</text>
+
+  <!-- arrow ① -> validation -->
+  <line x1="770" y1="300" x2="770" y2="336" stroke="#52514e" stroke-width="2" marker-end="url(#ah)"/>
+  <text x="786" y="324" font-size="15" font-weight="700" fill="#3b3b39">구조화된 요청</text>
+
+  <!-- validation -->
+  <rect x="390" y="340" width="760" height="76" rx="10" fill="#f3f2ee" stroke="#8a897f" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="410" y="370" font-size="18" font-weight="700" fill="#0b0b0b">요청 검증</text>
+  <rect x="500" y="352" width="50" height="24" rx="12" fill="#2a78d6"/>
+  <text x="525" y="369" font-size="13" font-weight="700" fill="#ffffff" text-anchor="middle">코드</text>
+  <text x="410" y="400" font-size="16" fill="#3b3b39">허용된 값 · 타입만 남김 → 실험 · metric이 MLflow에 있는지 대조 → 빠지거나 모호하면 되묻기</text>
+
+  <!-- clarify branch -->
+  <path d="M390,378 L185,378 L185,872" fill="none" stroke="#b5651d" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#aho)"/>
+  <text x="200" y="560" font-size="16" font-weight="700" fill="#8a4a12">되묻기</text>
+  <text x="200" y="584" font-size="14" fill="#52514e">실험 · metric 후보를</text>
+  <text x="200" y="604" font-size="14" fill="#52514e">보여 주고 다시 질문</text>
+
+  <!-- arrow validation -> ② -->
+  <line x1="770" y1="416" x2="770" y2="446" stroke="#52514e" stroke-width="2" marker-end="url(#ah)"/>
+
+  <!-- ② -->
+  <rect x="390" y="450" width="760" height="156" rx="12" fill="#eaf2fc" stroke="#2a78d6" stroke-width="2"/>
+  <rect x="410" y="466" width="58" height="28" rx="14" fill="#2a78d6"/>
+  <text x="439" y="486" font-size="15" font-weight="700" fill="#ffffff" text-anchor="middle">코드</text>
+  <text x="482" y="488" font-size="22" font-weight="700" fill="#0b0b0b">② 원본 조회 · 계산</text>
+  <text x="696" y="488" font-size="15" fill="#52514e">answer_request · mlflow_service</text>
+  <g font-size="17" fill="#0b0b0b">
+    <text x="414" y="526"><tspan font-weight="700">대상 확정</tspan>  실험 · run 찾기, metric 이름 → 실제 컬럼 (mAP50B → metrics/mAP50B)</text>
+    <text x="414" y="556"><tspan font-weight="700">선택</tspan>  기간 · 상태 필터, metric 정렬, 상위 N개 · 최고/최저</text>
+    <text x="414" y="586"><tspan font-weight="700">계산</tspan>  지표 차이, 비교표, 적용 조건 · 값의 출처 줄</text>
+  </g>
+
+  <!-- bypass: ② -> answer -->
+  <line x1="420" y1="606" x2="420" y2="872" stroke="#2a78d6" stroke-width="2.5" marker-end="url(#ahb)"/>
+  <text x="436" y="652" font-size="16" font-weight="700" fill="#1f5fae">바로 응답</text>
+  <text x="436" y="676" font-size="14" fill="#3b3b39">목록 · 정렬 · 비교표</text>
+  <text x="436" y="698" font-size="14" fill="#3b3b39">추가 LLM 호출 없음</text>
+  <text x="436" y="732" font-size="14" fill="#3b3b39">적용 조건 · 출처 줄은</text>
+  <text x="436" y="754" font-size="14" fill="#3b3b39">어느 경로든 코드가 붙임</text>
+
+  <!-- ② -> ③ -->
+  <line x1="875" y1="606" x2="875" y2="646" stroke="#52514e" stroke-width="2" marker-end="url(#ah)"/>
+  <text x="890" y="626" font-size="15" font-weight="700" fill="#3b3b39">조회 · 계산 결과</text>
+  <text x="1010" y="626" font-size="13" fill="#52514e">(run 값, 같은 실험 내 순위)</text>
+
+  <!-- ③ -->
+  <rect x="610" y="650" width="540" height="124" rx="12" fill="#f0eefc" stroke="#6250d6" stroke-width="2"/>
+  <rect x="630" y="666" width="58" height="28" rx="14" fill="#6250d6"/>
+  <text x="659" y="686" font-size="15" font-weight="700" fill="#ffffff" text-anchor="middle">LLM</text>
+  <text x="702" y="688" font-size="22" font-weight="700" fill="#0b0b0b">③ 결과 설명 · 요약</text>
+  <text x="632" y="724" font-size="16" fill="#0b0b0b">run 요약 · 학습 평가를 요청했을 때만 실행</text>
+  <text x="632" y="752" font-size="16" fill="#0b0b0b">받은 값만 근거로 쓰고, 없으면 '근거 부족'</text>
+
+  <!-- ③ -> answer -->
+  <line x1="875" y1="774" x2="875" y2="872" stroke="#6250d6" stroke-width="2.5" marker-end="url(#ahv)"/>
+  <text x="890" y="836" font-size="14" fill="#3b3b39">설명 문장</text>
+
+  <!-- right: services -->
+  <rect x="1240" y="190" width="320" height="110" rx="14" fill="#ffffff" stroke="#6250d6" stroke-width="2"/>
+  <text x="1400" y="228" font-size="19" font-weight="700" fill="#0b0b0b" text-anchor="middle">LLM 서버 · CHAT_*</text>
+  <text x="1400" y="256" font-size="15" fill="#52514e" text-anchor="middle">OpenAI 호환 API</text>
+  <text x="1400" y="282" font-size="15" fill="#52514e" text-anchor="middle">예: Qwen3.6-35B-A3B</text>
+  <line x1="1150" y1="245" x2="1236" y2="245" stroke="#6250d6" stroke-width="2" marker-end="url(#ahv)" marker-start="url(#ahv)"/>
+
+  <rect x="1240" y="466" width="320" height="120" rx="14" fill="#ffffff" stroke="#2a78d6" stroke-width="2"/>
+  <text x="1400" y="504" font-size="19" font-weight="700" fill="#0b0b0b" text-anchor="middle">MLflow Tracking :2522</text>
+  <text x="1400" y="532" font-size="15" fill="#0b0b0b" text-anchor="middle">실험 · run · params · metrics</text>
+  <text x="1400" y="558" font-size="15" fill="#52514e" text-anchor="middle">원본 (질문마다 조회, 복제 안 함)</text>
+  <line x1="1150" y1="526" x2="1236" y2="526" stroke="#2a78d6" stroke-width="2" marker-end="url(#ahb)" marker-start="url(#ahb)"/>
+
+  <rect x="1240" y="656" width="320" height="110" rx="14" fill="#ffffff" stroke="#6250d6" stroke-width="2"/>
+  <text x="1400" y="696" font-size="19" font-weight="700" fill="#0b0b0b" text-anchor="middle">LLM 서버 · CHAT_*</text>
+  <text x="1400" y="724" font-size="15" fill="#52514e" text-anchor="middle">①과 같은 서버</text>
+  <line x1="1150" y1="711" x2="1236" y2="711" stroke="#6250d6" stroke-width="2" marker-end="url(#ahv)" marker-start="url(#ahv)"/>
+
+  <!-- final answer (output, no number) -->
+  <rect x="40" y="876" width="1140" height="160" rx="14" fill="#ffffff" stroke="#0b0b0b" stroke-opacity="0.35" stroke-width="2"/>
+  <text x="64" y="912" font-size="22" font-weight="700" fill="#0b0b0b">최종 답변</text>
+  <text x="180" y="912" font-size="16" fill="#52514e">본문과 함께 근거를 화면에 표시</text>
+  <g font-size="14">
+    <rect x="64" y="930" width="360" height="84" rx="10" fill="#f3f2ee"/>
+    <text x="80" y="956" font-weight="700" fill="#0b0b0b">적용 조건 (값의 출처 포함)</text>
+    <text x="80" y="980" fill="#3b3b39">실험 Timm Hub(이전 대화) ·</text>
+    <text x="80" y="1000" fill="#3b3b39">정렬 val_acc 높은 순 · 2개</text>
+    <rect x="440" y="930" width="360" height="84" rx="10" fill="#f3f2ee"/>
+    <text x="456" y="956" font-weight="700" fill="#0b0b0b">route — 거친 처리 경로</text>
+    <text x="456" y="980" fill="#3b3b39">parse_request → answer_request</text>
+    <text x="456" y="1000" fill="#3b3b39">→ _answer_compare</text>
+    <rect x="816" y="930" width="340" height="84" rx="10" fill="#f3f2ee"/>
+    <text x="832" y="956" font-weight="700" fill="#0b0b0b">tool calls — 실제로 조회한 함수</text>
+    <text x="832" y="980" fill="#3b3b39">list_experiment_names, get_runs</text>
+    <text x="832" y="1000" fill="#3b3b39">(③을 거치면 llm_answer 추가)</text>
+  </g>
+
+  <!-- postgres -->
+  <rect x="1240" y="876" width="320" height="160" rx="14" fill="#ffffff" stroke="#c3c2b7" stroke-width="2"/>
+  <text x="1400" y="916" font-size="19" font-weight="700" fill="#0b0b0b" text-anchor="middle">PostgreSQL :5435</text>
+  <text x="1400" y="946" font-size="15" fill="#3b3b39" text-anchor="middle">대화 세션 · 메시지 · 보고서</text>
+  <text x="1400" y="972" font-size="15" fill="#52514e" text-anchor="middle">직전 요청 구조를 함께 저장해</text>
+  <text x="1400" y="994" font-size="15" fill="#52514e" text-anchor="middle">다음 턴 ①이 이어받음</text>
+  <line x1="1180" y1="956" x2="1236" y2="956" stroke="#52514e" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#ah)"/>
+  <text x="1208" y="944" font-size="13" fill="#52514e" text-anchor="middle">저장</text>
+
+  <!-- footnote: other entry paths -->
+  <g font-size="15" fill="#52514e">
+    <text x="40" y="1076"><tspan font-weight="700" fill="#3b3b39">다른 진입 경로</tspan>   · 보고서 생성 버튼: ①을 거치지 않고 ② 상위 run 조회 · 정렬 → ③ LLAMA_* 서버가 본문 작성 (본문의 차이 · 변화율은 LLM이 계산)</text>
+    <text x="40" y="1102"><tspan font-weight="700" fill="#3b3b39">·</tspan> 보고서로 질문하기: ① → MLflow 재조회 없이 저장된 보고서 본문 → ③     <tspan font-weight="700" fill="#3b3b39">·</tspan> 요청 구조로 답할 수 없는 질문(해석 실패 포함): 보조 경로인 MLflow MCP 에이전트</text>
+  </g>
+</svg>

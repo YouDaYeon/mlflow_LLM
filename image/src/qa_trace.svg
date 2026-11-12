@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1130" viewBox="0 0 1400 1130" font-family="NanumGothic, 'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#52514e"/>
+    </marker>
+  </defs>
+  <rect width="1400" height="1130" rx="16" fill="#fcfcfb"/>
+
+  <text x="40" y="58" font-size="32" font-weight="700" fill="#0b0b0b">실제 질문 처리 예시: 최고·최저 run 비교</text>
+  <text x="40" y="94" font-size="19" fill="#52514e">질문을 구조화하고, 원본 데이터를 조회·계산해 비교표로 응답합니다.</text>
+
+  <!-- user question -->
+  <rect x="40" y="120" width="1320" height="86" rx="14" fill="#ffffff" stroke="#0b0b0b" stroke-opacity="0.35" stroke-width="2"/>
+  <text x="64" y="150" font-size="16" font-weight="700" fill="#52514e">사용자 질문</text>
+  <text x="64" y="188" font-size="25" fill="#0b0b0b">“Timm Hub에서 val_acc 기준 최고 run과 최저 run을 비교해줘”</text>
+  <line x1="700" y1="206" x2="700" y2="232" stroke="#52514e" stroke-width="2" marker-end="url(#ah)"/>
+
+  <!-- ① -->
+  <rect x="40" y="236" width="1320" height="110" rx="14" fill="#f0eefc" stroke="#6250d6" stroke-width="2"/>
+  <text x="64" y="274" font-size="22" font-weight="700" fill="#0b0b0b">① 질문 구조화</text>
+  <rect x="222" y="254" width="58" height="28" rx="14" fill="#6250d6"/>
+  <text x="251" y="274" font-size="15" font-weight="700" fill="#ffffff" text-anchor="middle">LLM</text>
+  <g font-size="18" font-family="'DejaVu Sans Mono', Consolas, monospace" fill="#3b3b39">
+    <rect x="64" y="294" width="270" height="36" rx="8" fill="#ffffff" stroke="#d9d5f5"/>
+    <text x="80" y="318">experiment: Timm Hub</text>
+    <rect x="350" y="294" width="210" height="36" rx="8" fill="#ffffff" stroke="#d9d5f5"/>
+    <text x="366" y="318">metric: val_acc</text>
+    <rect x="576" y="294" width="210" height="36" rx="8" fill="#ffffff" stroke="#d9d5f5"/>
+    <text x="592" y="318">action: compare</text>
+    <rect x="802" y="294" width="230" height="36" rx="8" fill="#ffffff" stroke="#d9d5f5"/>
+    <text x="818" y="318">pick: both_ends</text>
+  </g>
+  <text x="1336" y="318" font-size="14" fill="#52514e" text-anchor="end">핵심 필드만 표시</text>
+
+  <line x1="700" y1="346" x2="700" y2="374" stroke="#52514e" stroke-width="2" marker-end="url(#ah)"/>
+  <text x="716" y="366" font-size="14" fill="#52514e">구조화된 요청 → 요청 검증 통과</text>
+
+  <!-- ② -->
+  <rect x="40" y="378" width="1320" height="196" rx="14" fill="#eaf2fc" stroke="#2a78d6" stroke-width="2"/>
+  <text x="64" y="416" font-size="22" font-weight="700" fill="#0b0b0b">② 원본 조회 · 계산</text>
+  <rect x="268" y="396" width="58" height="28" rx="14" fill="#2a78d6"/>
+  <text x="297" y="416" font-size="15" font-weight="700" fill="#ffffff" text-anchor="middle">코드</text>
+
+  <rect x="64" y="436" width="390" height="118" rx="10" fill="#ffffff" stroke="#c9dcf3"/>
+  <text x="84" y="472" font-size="21" font-weight="700" fill="#0b0b0b">실험 · metric 확인</text>
+  <text x="84" y="504" font-size="17" fill="#0b0b0b">Timm Hub 실험, val_acc 지표</text>
+  <text x="84" y="534" font-size="14" fill="#52514e">list_experiment_names() · metrics.val_acc</text>
+
+  <line x1="454" y1="495" x2="500" y2="495" stroke="#2a78d6" stroke-width="2" marker-end="url(#ah)"/>
+
+  <rect x="504" y="436" width="390" height="118" rx="10" fill="#ffffff" stroke="#c9dcf3"/>
+  <text x="524" y="472" font-size="21" font-weight="700" fill="#0b0b0b">최고 · 최저 run 선택</text>
+  <text x="524" y="504" font-size="17" fill="#0b0b0b">run 4개를 val_acc로 정렬, 양 끝 선택</text>
+  <text x="524" y="534" font-size="14" fill="#52514e">get_runs('Timm Hub')</text>
+
+  <line x1="894" y1="495" x2="940" y2="495" stroke="#2a78d6" stroke-width="2" marker-end="url(#ah)"/>
+
+  <rect x="944" y="436" width="392" height="118" rx="10" fill="#ffffff" stroke="#c9dcf3"/>
+  <text x="964" y="472" font-size="21" font-weight="700" fill="#0b0b0b">차이 계산</text>
+  <text x="964" y="504" font-size="17" fill="#0b0b0b">0.9569 - 0.946 = +0.0109</text>
+  <text x="964" y="534" font-size="14" fill="#52514e">파라미터 비교: 두 run 모두 같음</text>
+
+  <line x1="700" y1="574" x2="700" y2="600" stroke="#52514e" stroke-width="2" marker-end="url(#ah)"/>
+
+  <!-- ③ skipped -->
+  <rect x="40" y="604" width="1320" height="60" rx="14" fill="#f6f6f3" stroke="#a8a79e" stroke-width="1.5" stroke-dasharray="7 5"/>
+  <text x="64" y="641" font-size="20" font-weight="700" fill="#8a897f">③ 결과 설명 · 요약 — 이 사례에서는 생략</text>
+  <text x="1336" y="641" font-size="15" fill="#8a897f" text-anchor="end">비교표는 코드가 이미 만들었으므로 LLM을 다시 호출하지 않음</text>
+
+  <line x1="700" y1="664" x2="700" y2="690" stroke="#52514e" stroke-width="2" marker-end="url(#ah)"/>
+
+  <!-- final answer -->
+  <rect x="40" y="694" width="1320" height="370" rx="14" fill="#ffffff" stroke="#0b0b0b" stroke-opacity="0.35" stroke-width="2"/>
+  <text x="64" y="730" font-size="22" font-weight="700" fill="#0b0b0b">최종 답변</text>
+  <text x="170" y="730" font-size="16" fill="#52514e">코드가 생성한 비교표를 바로 표시</text>
+  <rect x="64" y="746" width="1272" height="36" rx="6" fill="#f3f2ee"/>
+  <text x="80" y="770" font-size="16" fill="#3b3b39">적용 조건: 실험 <tspan font-weight="700" fill="#0b0b0b">Timm Hub</tspan> · 정렬 <tspan font-weight="700" fill="#0b0b0b">val_acc</tspan> 높은 순 · 최고·최저 run</text>
+
+  <!-- value tiles -->
+  <rect x="64" y="798" width="300" height="118" rx="10" fill="#f7f9fd" stroke="#c9dcf3"/>
+  <text x="84" y="828" font-size="16" fill="#3b3b39">capricious-moth-486 · <tspan font-weight="700">최고</tspan></text>
+  <text x="84" y="852" font-size="14" fill="#52514e">val_acc</text>
+  <text x="84" y="898" font-size="40" font-weight="700" fill="#0b0b0b">0.9569</text>
+
+  <rect x="380" y="798" width="300" height="118" rx="10" fill="#f7f9fd" stroke="#c9dcf3"/>
+  <text x="400" y="828" font-size="16" fill="#3b3b39">loud-gnat-654 · <tspan font-weight="700">최저</tspan></text>
+  <text x="400" y="852" font-size="14" fill="#52514e">val_acc</text>
+  <text x="400" y="898" font-size="40" font-weight="700" fill="#0b0b0b">0.946</text>
+
+  <rect x="696" y="798" width="640" height="118" rx="10" fill="#eaf2fc" stroke="#2a78d6" stroke-width="1.5"/>
+  <text x="716" y="828" font-size="16" fill="#3b3b39">val_acc 차이 (최고 - 최저)</text>
+  <text x="716" y="898" font-size="40" font-weight="700" fill="#1f5fae">+0.0109</text>
+  <text x="900" y="868" font-size="18" font-weight="700" fill="#0b0b0b">= 정확도 +1.09%p</text>
+  <text x="900" y="896" font-size="14" fill="#52514e">퍼센트포인트 차이. 상대 증가율(+1.15%)과 다름</text>
+
+  <!-- other metrics, small -->
+  <g font-size="15" fill="#3b3b39">
+    <text x="64" y="950" font-size="14" font-weight="700" fill="#52514e">다른 지표</text>
+    <text x="200" y="950" font-weight="700" fill="#0b0b0b">capricious-moth-486</text>
+    <text x="420" y="950" font-weight="700" fill="#0b0b0b">loud-gnat-654</text>
+    <line x1="64" y1="960" x2="640" y2="960" stroke="#e1e0d9"/>
+    <text x="64" y="984">train_acc</text><text x="200" y="984">0.94704</text><text x="420" y="984">0.83844</text>
+    <text x="64" y="1010">train_loss</text><text x="200" y="1010">0.163607</text><text x="420" y="1010">0.526638</text>
+    <text x="64" y="1036">val_loss</text><text x="200" y="1036">0.124486</text><text x="420" y="1036">0.163361</text>
+  </g>
+  <text x="716" y="984" font-size="15" fill="#3b3b39">※ 비교한 run의 파라미터는 모두 같습니다.</text>
+
+  <text x="40" y="1100" font-size="14" fill="#8a897f">평가 케이스 C01 실행 기록 · 2026-11-11 · 채팅 모델 Qwen3.6-35B-A3B · 사내 MLflow. %p 환산과 상대 증가율은 그림 설명용이며, 실제 답변에는 +0.0109로 표시됩니다.</text>
+</svg>

@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="640" viewBox="0 0 1600 640" font-family="NanumGothic, 'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif">
+  <rect width="1600" height="640" rx="16" fill="#fcfcfb"/>
+
+  <text x="40" y="58" font-size="32" font-weight="700" fill="#0b0b0b">3단계 처리 구조 전환 전후 평가</text>
+  <text x="40" y="94" font-size="19" fill="#52514e">동일 질문으로 요청 반영 여부와 응답 시간 비교</text>
+
+  <!-- ===== left: request reflection ===== -->
+  <text x="40" y="156" font-size="23" font-weight="700" fill="#0b0b0b">요청 반영 결과</text>
+  <text x="40" y="182" font-size="15" fill="#52514e">조회 조건과 최종 답변까지 사람이 판정</text>
+  <g font-size="15" fill="#0b0b0b">
+    <rect x="40" y="198" width="16" height="16" rx="3" fill="#0ca30c"/><text x="62" y="212">완전 반영</text>
+    <rect x="150" y="198" width="16" height="16" rx="3" fill="#fab219"/><text x="172" y="212">부분 반영</text>
+    <rect x="260" y="198" width="16" height="16" rx="3" fill="#d03b3b"/><text x="282" y="212">오류</text>
+  </g>
+
+  <g font-size="16" fill="#0b0b0b">
+    <text x="40" y="262" font-weight="700">평가 질문 36개</text>
+    <text x="280" y="284" text-anchor="end" fill="#52514e">전환 전</text>
+    <text x="280" y="330" text-anchor="end" fill="#52514e">전환 후</text>
+    <text x="40" y="392" font-weight="700">추가 검증 질문 11개</text>
+    <text x="40" y="414" font-size="14" fill="#52514e">구조 개선에 사용하지 않은 질문</text>
+    <text x="280" y="446" text-anchor="end" fill="#52514e">전환 전</text>
+    <text x="280" y="492" text-anchor="end" fill="#52514e">전환 후</text>
+  </g>
+
+  <!-- 36 before 5/5/26 ; scale 560px -->
+  <rect x="300" y="262" width="75.8" height="32" rx="4" fill="#0ca30c"/>
+  <rect x="377.8" y="262" width="75.8" height="32" rx="4" fill="#fab219"/>
+  <rect x="455.6" y="262" width="404.4" height="32" rx="4" fill="#d03b3b"/>
+  <g font-size="15" font-weight="700" text-anchor="middle">
+    <text x="337.9" y="284" fill="#ffffff">5</text>
+    <text x="415.7" y="284" fill="#0b0b0b">5</text>
+    <text x="657.8" y="284" fill="#ffffff">26</text>
+  </g>
+  <!-- 36 after 35/1/0 -->
+  <rect x="300" y="308" width="542.4" height="32" rx="4" fill="#0ca30c"/>
+  <rect x="844.4" y="308" width="15.6" height="32" rx="4" fill="#fab219"/>
+  <text x="571.2" y="330" font-size="15" font-weight="700" fill="#ffffff" text-anchor="middle">35</text>
+
+  <!-- 11 before 5/2/4 -->
+  <rect x="300" y="424" width="252.5" height="32" rx="4" fill="#0ca30c"/>
+  <rect x="554.5" y="424" width="99.8" height="32" rx="4" fill="#fab219"/>
+  <rect x="656.3" y="424" width="203.7" height="32" rx="4" fill="#d03b3b"/>
+  <g font-size="15" font-weight="700" text-anchor="middle">
+    <text x="426.2" y="446" fill="#ffffff">5</text>
+    <text x="604.4" y="446" fill="#0b0b0b">2</text>
+    <text x="758.1" y="446" fill="#ffffff">4</text>
+  </g>
+  <!-- 11 after -->
+  <rect x="300" y="470" width="560" height="32" rx="4" fill="#0ca30c"/>
+  <text x="580" y="492" font-size="15" font-weight="700" fill="#ffffff" text-anchor="middle">11</text>
+
+  <!-- ratios -->
+  <g font-size="17" fill="#0b0b0b">
+    <text x="876" y="284">5/36 <tspan fill="#52514e">(13.9%)</tspan></text>
+    <text x="876" y="330" font-weight="700">35/36 (97.2%)</text>
+    <text x="876" y="352" font-size="13" fill="#52514e">부분 반영 1</text>
+    <text x="876" y="446">5/11 <tspan fill="#52514e">(45.5%)</tspan></text>
+    <text x="876" y="492" font-weight="700">11/11 (100%)</text>
+  </g>
+  <text x="876" y="240" font-size="13" fill="#52514e">완전 반영</text>
+
+  <!-- ===== right: latency ===== -->
+  <text x="1040" y="156" font-size="23" font-weight="700" fill="#0b0b0b">응답 지연 감소, 중앙값은 소폭 증가</text>
+  <text x="1040" y="182" font-size="15" fill="#52514e">31개 질문 × 각 3회 · FastAPI TestClient 기준 (초)</text>
+  <g font-size="15" fill="#0b0b0b">
+    <rect x="1040" y="198" width="16" height="16" rx="3" fill="#eb6834"/><text x="1062" y="212">전환 전</text>
+    <rect x="1140" y="198" width="16" height="16" rx="3" fill="#2a78d6"/><text x="1162" y="212">전환 후</text>
+  </g>
+  <!-- grid: baseline 500, 12px per second, top 20s = 260 -->
+  <g stroke="#e1e0d9" stroke-width="1">
+    <line x1="1070" y1="260" x2="1560" y2="260"/>
+    <line x1="1070" y1="320" x2="1560" y2="320"/>
+    <line x1="1070" y1="380" x2="1560" y2="380"/>
+    <line x1="1070" y1="440" x2="1560" y2="440"/>
+  </g>
+  <line x1="1070" y1="500" x2="1560" y2="500" stroke="#c3c2b7" stroke-width="1.5"/>
+  <g font-size="14" fill="#52514e" text-anchor="end">
+    <text x="1060" y="265">20</text><text x="1060" y="325">15</text><text x="1060" y="385">10</text><text x="1060" y="445">5</text><text x="1060" y="505">0</text>
+  </g>
+  <g>
+    <rect x="1094" y="484.4" width="56" height="15.6" rx="4" fill="#eb6834"/>
+    <rect x="1154" y="478.4" width="56" height="21.6" rx="4" fill="#2a78d6"/>
+    <rect x="1258" y="362" width="56" height="138" rx="4" fill="#eb6834"/>
+    <rect x="1318" y="467.6" width="56" height="32.4" rx="4" fill="#2a78d6"/>
+    <rect x="1422" y="268.4" width="56" height="231.6" rx="4" fill="#eb6834"/>
+    <rect x="1482" y="446" width="56" height="54" rx="4" fill="#2a78d6"/>
+  </g>
+  <g font-size="15" font-weight="700" fill="#0b0b0b" text-anchor="middle">
+    <text x="1122" y="476">1.3</text>
+    <text x="1182" y="470">1.8</text>
+    <text x="1286" y="354">11.5</text>
+    <text x="1346" y="459">2.7</text>
+    <text x="1450" y="260">19.3</text>
+    <text x="1510" y="438">4.5</text>
+  </g>
+  <g font-size="16" fill="#0b0b0b" text-anchor="middle">
+    <text x="1152" y="526">중앙값</text><text x="1316" y="526">p90</text><text x="1480" y="526">최대</text>
+  </g>
+
+  <!-- footer -->
+  <line x1="40" y1="556" x2="1560" y2="556" stroke="#e1e0d9"/>
+  <g font-size="15" fill="#52514e">
+    <text x="40" y="588">2026-11-11 · 채팅 모델 Qwen3.6-35B-A3B · 같은 MLflow 서버 · DB · LLM에서 실행 · 전환 전 b9d9bca / 전환 후 fb23f42</text>
+    <text x="40" y="614">요청 반영은 각 질문 1회 실행 판정. 응답 시간은 두 버전 모두 3회 실행한 공통 질문 31개 기준(추가 5개는 전환 전 1회만 실행). 상세: docs/evaluation.md</text>
+  </g>
+</svg>
