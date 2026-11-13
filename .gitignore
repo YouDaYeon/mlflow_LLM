@@ -19,6 +19,7 @@ env/
 *.log
 .env
 .env.*
+!.env.example
 db-data/
 pgadmin-data/
 

@@ -64,12 +64,12 @@ services:
       DATABASE_URL: postgresql+psycopg://mlflow_llm:mlflow_llm@postgres:5432/mlflow_llm
       MLFLOW_TRACKING_URI: http://mlflow:2522
 
-      CHAT_BASE_URL: ${CHAT_BASE_URL:-http://127.0.0.1:9983}
+      CHAT_BASE_URL: ${CHAT_BASE_URL:?CHAT_BASE_URL를 .env에 설정하세요}
       CHAT_API_KEY: ${CHAT_API_KEY:-llama-local}
       CHAT_MODEL: ${CHAT_MODEL:-Qwen3.6-35B-A3B}
       CHAT_TEMPERATURE: ${CHAT_TEMPERATURE:-0.2}
 
-      LLAMA_BASE_URL: ${LLAMA_BASE_URL:-http://127.0.0.1:9980/v1}
+      LLAMA_BASE_URL: ${LLAMA_BASE_URL:?LLAMA_BASE_URL를 .env에 설정하세요}
       LLAMA_API_KEY: ${LLAMA_API_KEY:-llama-local}
       LLAMA_MODEL: ${LLAMA_MODEL:-gemma-4-26B-A4B-it-UD-Q8_K_XL}
       LLAMA_TEMPERATURE: ${LLAMA_TEMPERATURE:-0.2}

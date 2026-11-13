@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     mcp_client_session_timeout_seconds: float = 60.0
 
     # chat
-    chat_base_url: str = "http://127.0.0.1:9983"
+    chat_base_url: str = "http://127.0.0.1:8080/v1"
     chat_api_key: str = "llama-local"
     chat_model: str = "Qwen3.6-35B-A3B"
     chat_temperature: float = 0.2
@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     )
 
     # report
-    llama_base_url: str = "http://127.0.0.1:9980"
+    llama_base_url: str = "http://127.0.0.1:8080/v1"
     llama_api_key: str = "llama-local"
     llama_model: str = "gemma-4-26B-A4B-it-UD-Q8_K_XL"
     llama_temperature: float = 0.2
