@@ -1134,7 +1134,6 @@ def _answer_experiments(ctx: _Context) -> tuple[str, dict]:
         row = ExpDisplayRow.from_experiment_dict(experiment, detail)
         return (
             row.to_markdown(),
-            "get_experiment",
             ctx.metadata(experiment_display_row=row.to_metadata()),
         )
 

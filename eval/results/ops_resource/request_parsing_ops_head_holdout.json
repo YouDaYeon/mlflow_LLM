@@ -1,0 +1,573 @@
+{
+  "label": "ops_head_holdout",
+  "code_root": "/tmp/claude-1006/-home-dyyu-mlflow-LLM-dy/f3572de7-0bf0-4b89-a44c-a7a034b6f24c/scratchpad/head-wt",
+  "measured_at": "2026-11-13T14:18:43+09:00",
+  "model": "Qwen3.6-35B-A3B",
+  "cases": [
+    {
+      "id": "H01",
+      "group": "홀드아웃",
+      "problem": [
+        "P5"
+      ],
+      "session": null,
+      "message": "Timm Hub에 run 몇 개 있어?",
+      "expected": "개수만: 4개.",
+      "http_status": 200,
+      "elapsed_ms": 1379,
+      "parser": [
+        {
+          "intent": "get_runs",
+          "arguments": {
+            "experiment_name": "Timm Hub"
+          }
+        }
+      ],
+      "routed": "get_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser",
+          "llm_ms": 282,
+          "prompt_tokens": 1190,
+          "completion_tokens": 16
+        },
+        {
+          "tool": "get_runs",
+          "args": [
+            "Timm Hub"
+          ],
+          "kwargs": {},
+          "result_size": 4,
+          "ms": 125
+        },
+        {
+          "tool": "llm:session_title",
+          "llm_ms": 373,
+          "prompt_tokens": 159,
+          "completion_tokens": 8
+        }
+      ],
+      "answer": "`Timm Hub` run **4개** (미리보기 **4개**)\n\n| Name | Score | Status | Date | Time |\n|------|-------|--------|------|------|\n| capricious-moth-486 | - | FINISHED | 2026-04-10 | 14:55:24 |\n| loud-gnat-654 | - | FINISHED | 2026-04-10 | 14:54:29 |\n| mysterious-yak-903 | - | FINISHED | 2026-04-08 | 15:05:36 |\n| skittish-dove-494 | - | FINISHED | 2026-04-08 | 15:04:38 |",
+      "error": null
+    },
+    {
+      "id": "H02",
+      "group": "홀드아웃",
+      "problem": [
+        "P2",
+        "P5"
+      ],
+      "session": null,
+      "message": "ultralytics-yolo-hpo에서 mAP50-95B 상위 3개 run 이름만 알려줘",
+      "expected": "yolo26n-hpo-09, yolo26n-hpo-08, yolo26n-hpo-05 (이름만).",
+      "http_status": 200,
+      "elapsed_ms": 1818,
+      "parser": [
+        {
+          "intent": "search_runs",
+          "arguments": {
+            "experiment_name": "ultralytics-yolo-hpo",
+            "metric_key": "metrics/mAP50-95B",
+            "top_k": 3,
+            "ascending": false
+          }
+        },
+        {
+          "search_filters": {
+            "recent_days": null,
+            "status": null,
+            "user": null,
+            "tag_key": null,
+            "tag_value": null
+          }
+        }
+      ],
+      "routed": "search_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser",
+          "llm_ms": 596,
+          "prompt_tokens": 1206,
+          "completion_tokens": 42
+        },
+        {
+          "tool": "get_runs",
+          "args": [
+            "ultralytics-yolo-hpo"
+          ],
+          "kwargs": {},
+          "result_size": 20,
+          "ms": 201
+        },
+        {
+          "tool": "llm:search_filter_parser",
+          "llm_ms": 403,
+          "prompt_tokens": 638,
+          "completion_tokens": 25
+        },
+        {
+          "tool": "list_run_metrics",
+          "args": [
+            "ultralytics-yolo-hpo"
+          ],
+          "kwargs": {},
+          "result_size": 13,
+          "ms": 190
+        },
+        {
+          "tool": "llm:session_title",
+          "llm_ms": 372,
+          "prompt_tokens": 111,
+          "completion_tokens": 17
+        }
+      ],
+      "answer": "metrics/mAP50-95B가 없습니다. ultralytics-yolo-hpo의 metric 키 목록을 조회해 주세요.",
+      "error": null
+    },
+    {
+      "id": "H03",
+      "group": "홀드아웃",
+      "problem": [
+        "P2",
+        "P3"
+      ],
+      "session": null,
+      "message": "가장 오래된 실험 2개 알려줘",
+      "expected": "생성 오름차순 2개: Default, OpenAI_Test_Project(같은 시각).",
+      "http_status": 200,
+      "elapsed_ms": 731,
+      "parser": [
+        {
+          "intent": "list_recent_experiments",
+          "arguments": {
+            "top_k": 2,
+            "ascending": true
+          }
+        }
+      ],
+      "routed": "list_recent_experiments",
+      "calls": [
+        {
+          "tool": "llm:intent_parser",
+          "llm_ms": 360,
+          "prompt_tokens": 1193,
+          "completion_tokens": 20
+        },
+        {
+          "tool": "list_recent_experiment_names",
+          "args": [],
+          "kwargs": {
+            "limit": 5
+          },
+          "result_size": 5,
+          "ms": 29
+        },
+        {
+          "tool": "llm:session_title",
+          "llm_ms": 296,
+          "prompt_tokens": 102,
+          "completion_tokens": 9
+        }
+      ],
+      "answer": "최근 실험(5개)\n- ultralytics-yolo-hpo\n- ultralytics-yolo\n- Timm Hub\n- My Application\n- Deep Learning Experiment",
+      "error": null
+    },
+    {
+      "id": "H04",
+      "group": "홀드아웃",
+      "problem": [
+        "P5"
+      ],
+      "session": null,
+      "message": "trial_21 run의 error 값은?",
+      "expected": "값 하나: 0.2446.",
+      "http_status": 200,
+      "elapsed_ms": 821,
+      "parser": [
+        {
+          "intent": "get_run_info",
+          "arguments": {
+            "run_name": "trial_21",
+            "metric_key": "error"
+          }
+        }
+      ],
+      "routed": "get_run_info",
+      "calls": [
+        {
+          "tool": "llm:intent_parser",
+          "llm_ms": 383,
+          "prompt_tokens": 1191,
+          "completion_tokens": 23
+        },
+        {
+          "tool": "find_runs",
+          "args": [],
+          "kwargs": {
+            "run_name": "trial_21",
+            "run_id": null,
+            "experiment_name": null
+          },
+          "result_size": 1,
+          "ms": 67
+        },
+        {
+          "tool": "llm:session_title",
+          "llm_ms": 311,
+          "prompt_tokens": 92,
+          "completion_tokens": 9
+        }
+      ],
+      "answer": "`trial_21`의 `error`는 0.244573입니다.",
+      "error": null
+    },
+    {
+      "id": "H05",
+      "group": "홀드아웃",
+      "problem": [
+        "P5"
+      ],
+      "session": null,
+      "message": "Timm Hub에서 기록한 metric 종류 알려줘",
+      "expected": "train_acc, train_loss, val_acc, val_loss.",
+      "http_status": 200,
+      "elapsed_ms": 737,
+      "parser": [
+        {
+          "intent": "list_metric_keys",
+          "arguments": {
+            "experiment_name": "Timm Hub"
+          }
+        }
+      ],
+      "routed": "list_metric_keys",
+      "calls": [
+        {
+          "tool": "llm:intent_parser",
+          "llm_ms": 348,
+          "prompt_tokens": 1191,
+          "completion_tokens": 17
+        },
+        {
+          "tool": "list_run_metrics",
+          "args": [
+            "Timm Hub"
+          ],
+          "kwargs": {},
+          "result_size": 4,
+          "ms": 57
+        },
+        {
+          "tool": "llm:session_title",
+          "llm_ms": 289,
+          "prompt_tokens": 96,
+          "completion_tokens": 7
+        }
+      ],
+      "answer": "Timm Hub metric 키 목록(4개)\n- metrics.train_acc\n- metrics.train_loss\n- metrics.val_acc\n- metrics.val_loss",
+      "error": null
+    },
+    {
+      "id": "H06",
+      "group": "홀드아웃",
+      "problem": [
+        "P5"
+      ],
+      "session": null,
+      "message": "skittish-dove-494 run 설정값만 보여줘",
+      "expected": "파라미터만: lr 0.0001, optimizer AdamW, epochs 2, model hf-hub:nateraw/resnet50-oxford-iiit-pet.",
+      "http_status": 200,
+      "elapsed_ms": 851,
+      "parser": [
+        {
+          "intent": "get_run_info",
+          "arguments": {
+            "run_name": "skittish-dove-494"
+          }
+        }
+      ],
+      "routed": "get_run_info",
+      "calls": [
+        {
+          "tool": "llm:intent_parser",
+          "llm_ms": 398,
+          "prompt_tokens": 1196,
+          "completion_tokens": 23
+        },
+        {
+          "tool": "find_runs",
+          "args": [],
+          "kwargs": {
+            "run_name": "skittish-dove-494",
+            "run_id": null,
+            "experiment_name": null
+          },
+          "result_size": 1,
+          "ms": 59
+        },
+        {
+          "tool": "llm:session_title",
+          "llm_ms": 352,
+          "prompt_tokens": 188,
+          "completion_tokens": 13
+        }
+      ],
+      "answer": "`skittish-dove-494` run 정보\n\n- Experiment: `Timm Hub` (ID `6`)\n- Run name: `skittish-dove-494`\n- Run ID: `595479baa074474594f009de23d50926`\n- Status: FINISHED\n- User: dyyu\n- Start: 2026-04-08 15:04:38\n- End: 2026-04-08 15:04:39\n\n**Parameters**\n\n| Key | Value |\n|-----|-------|\n| epochs | 2 |\n| lr | 0.0001 |\n| model | hf-hub:nateraw/resnet50-oxford-iiit-pet |\n| optimizer | AdamW |\n\n**Metrics**\n\n| Key | Value |\n|-----|-------|\n| train_acc | 0.83866 |\n| train_loss | 0.527791 |\n| val_acc | 0.9467 |\n| val_loss | 0.162684 |",
+      "error": null
+    },
+    {
+      "id": "H07",
+      "group": "홀드아웃",
+      "problem": [
+        "P1"
+      ],
+      "session": null,
+      "message": "ultralytics-yolo 실험 정보 알려줘",
+      "expected": "ultralytics-yolo(ID 8) 상세. ultralytics-yolo-hpo와 혼동하지 않아야 한다.",
+      "http_status": 200,
+      "elapsed_ms": 778,
+      "parser": [
+        {
+          "intent": "get_experiment",
+          "arguments": {
+            "experiment_name": "ultralytics-yolo"
+          }
+        }
+      ],
+      "routed": "get_experiment",
+      "calls": [
+        {
+          "tool": "llm:intent_parser",
+          "llm_ms": 375,
+          "prompt_tokens": 1192,
+          "completion_tokens": 18
+        },
+        {
+          "tool": "list_experiment_names",
+          "args": [],
+          "kwargs": {},
+          "result_size": 9,
+          "ms": 28
+        },
+        {
+          "tool": "get_experiment",
+          "args": [
+            "ultralytics-yolo"
+          ],
+          "kwargs": {},
+          "result_size": 9,
+          "ms": 19
+        },
+        {
+          "tool": "llm:session_title",
+          "llm_ms": 313,
+          "prompt_tokens": 120,
+          "completion_tokens": 10
+        }
+      ],
+      "answer": "`ultralytics-yolo` 실험 정보\n\n| Name | Experiment ID | Lifecycle Stage | Created Date | Created Time |\n|------|----------------|-----------------|--------------|--------------|\n| ultralytics-yolo | 8 | active | 2026-10-14 | 15:05:31 |\n\n- Artifact Location: `/home/dyyu/MLflow/artifacts/8`\n- Tags: -",
+      "error": null
+    },
+    {
+      "id": "H08-1",
+      "group": "홀드아웃",
+      "problem": [
+        "P4"
+      ],
+      "session": "H08",
+      "message": "Deep Learning Experiment run 목록 보여줘",
+      "expected": "run 3개 목록.",
+      "http_status": 200,
+      "elapsed_ms": 774,
+      "parser": [
+        {
+          "intent": "get_runs",
+          "arguments": {
+            "experiment_name": "Deep Learning Experiment"
+          }
+        }
+      ],
+      "routed": "get_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser",
+          "llm_ms": 346,
+          "prompt_tokens": 1188,
+          "completion_tokens": 16
+        },
+        {
+          "tool": "get_runs",
+          "args": [
+            "Deep Learning Experiment"
+          ],
+          "kwargs": {},
+          "result_size": 3,
+          "ms": 63
+        },
+        {
+          "tool": "llm:session_title",
+          "llm_ms": 320,
+          "prompt_tokens": 149,
+          "completion_tokens": 11
+        }
+      ],
+      "answer": "`Deep Learning Experiment` run **3개** (미리보기 **3개**)\n\n| Name | Score | Status | Date | Time |\n|------|-------|--------|------|------|\n| carefree-moth-973 | - | FINISHED | 2026-10-14 | 10:21:37 |\n| burly-kit-617 | - | FINISHED | 2026-04-10 | 14:40:10 |\n| stylish-carp-904 | - | FINISHED | 2026-03-30 | 11:09:24 |",
+      "error": null
+    },
+    {
+      "id": "H08-2",
+      "group": "홀드아웃",
+      "problem": [
+        "P4"
+      ],
+      "session": "H08",
+      "message": "거기서 val_accuracy 제일 높은 건?",
+      "expected": "실험 이어받음 → burly-kit-617(77.95).",
+      "http_status": 200,
+      "elapsed_ms": 1029,
+      "parser": [
+        {
+          "intent": "search_runs",
+          "arguments": {
+            "experiment_name": "Deep Learning Experiment",
+            "metric_key": "val_accuracy",
+            "top_k": 1,
+            "ascending": false
+          }
+        },
+        {
+          "search_filters": {
+            "recent_days": null,
+            "status": null,
+            "user": null,
+            "tag_key": null,
+            "tag_value": null
+          }
+        }
+      ],
+      "routed": "search_runs",
+      "calls": [
+        {
+          "tool": "llm:intent_parser",
+          "llm_ms": 475,
+          "prompt_tokens": 1370,
+          "completion_tokens": 31
+        },
+        {
+          "tool": "get_runs",
+          "args": [
+            "Deep Learning Experiment"
+          ],
+          "kwargs": {},
+          "result_size": 3,
+          "ms": 62
+        },
+        {
+          "tool": "llm:search_filter_parser",
+          "llm_ms": 398,
+          "prompt_tokens": 622,
+          "completion_tokens": 25
+        },
+        {
+          "tool": "list_run_metrics",
+          "args": [
+            "Deep Learning Experiment"
+          ],
+          "kwargs": {},
+          "result_size": 16,
+          "ms": 56
+        }
+      ],
+      "answer": "val_accuracy가 없습니다. Deep Learning Experiment의 metric 키 목록을 조회해 주세요.",
+      "error": null
+    },
+    {
+      "id": "H09",
+      "group": "홀드아웃",
+      "problem": [
+        "P6"
+      ],
+      "session": null,
+      "message": "yolo26n-hpo-01 run 이름 바꿔줘",
+      "expected": "지원 범위 밖(조회 전용) 안내.",
+      "http_status": 200,
+      "elapsed_ms": 1308,
+      "parser": [
+        {
+          "intent": "mlflow_mcp",
+          "arguments": {
+            "run_name": "yolo26n-hpo-01"
+          }
+        }
+      ],
+      "routed": "mlflow_mcp",
+      "calls": [
+        {
+          "tool": "llm:intent_parser",
+          "llm_ms": 399,
+          "prompt_tokens": 1195,
+          "completion_tokens": 25
+        },
+        {
+          "tool": "find_runs",
+          "args": [],
+          "kwargs": {
+            "run_name": "yolo26n-hpo-01",
+            "run_id": null,
+            "experiment_name": null
+          },
+          "result_size": 1,
+          "ms": 66
+        },
+        {
+          "tool": "llm:run_answer",
+          "llm_ms": 424,
+          "prompt_tokens": 1512,
+          "completion_tokens": 6
+        },
+        {
+          "tool": "llm:session_title",
+          "llm_ms": 365,
+          "prompt_tokens": 79,
+          "completion_tokens": 17
+        }
+      ],
+      "answer": "run 정보에 근거 없음",
+      "error": null
+    },
+    {
+      "id": "H10",
+      "group": "홀드아웃",
+      "problem": [
+        "P1"
+      ],
+      "session": null,
+      "message": "loud-gnat-654랑 skittish-dove-494 비교해줘",
+      "expected": "두 run metric 비교(val_acc 0.946 vs 0.9467 등). 파라미터는 같음.",
+      "http_status": 500,
+      "elapsed_ms": 8624,
+      "parser": [
+        {
+          "intent": "mlflow_mcp",
+          "arguments": {
+            "run_name": "loud-gnat-654",
+            "run_name_2": "skittish-dove-494"
+          }
+        }
+      ],
+      "routed": null,
+      "calls": [
+        {
+          "tool": "llm:intent_parser",
+          "llm_ms": 475,
+          "prompt_tokens": 1201,
+          "completion_tokens": 37
+        }
+      ],
+      "answer": null,
+      "error": {
+        "detail": "Internal Server Error"
+      }
+    }
+  ]
+}

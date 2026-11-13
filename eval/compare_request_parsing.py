@@ -80,6 +80,7 @@ def main() -> None:
     import backend.app.services.chat_service as chat_service
     import backend.app.services.mlflow_service as mlflow_service
     from backend.app.main import app
+    from session_cleanup import cleanup_empty_sessions
     import importlib
 
     CASES = importlib.import_module(args.cases).CASES
@@ -204,7 +205,7 @@ def main() -> None:
     created_sessions: list[str] = []
     measured_at = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
-    with TestClient(app, raise_server_exceptions=False) as client:
+    with cleanup_empty_sessions(), TestClient(app, raise_server_exceptions=False) as client:
         for case in cases:
             trace["parser"] = []
             trace["calls"] = []
