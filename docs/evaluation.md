@@ -8,7 +8,7 @@
 
 | | 전환 전 | 전환 후 |
 |---|---|---|
-| 커밋 | `b9d9bca` | `fb23f42` |
+| 커밋 | `3db4d47` | `64cafb9` |
 | 구조 | LLM이 intent 9개 중 하나를 고르고, 일부 질문은 MLflow MCP 에이전트가 도구를 직접 호출해 답변 | ① 질문 구조화(LLM) → 요청 검증 → ② 원본 조회·계산(코드) → ③ 필요할 때만 설명·요약(LLM) |
 
 ## 2. 평가 조건
@@ -109,6 +109,6 @@ python eval/compare_request_parsing.py --label after
 python eval/compare_request_parsing.py --label holdout_after --cases request_parsing_holdout
 
 # 전환 전 (별도 worktree)
-git worktree add --detach ../head-wt b9d9bca
+git worktree add --detach ../head-wt 3db4d47
 python eval/compare_request_parsing.py --label head --code-root ../head-wt
 ```

@@ -1,6 +1,6 @@
 # 요청 해석 개선 — 프롬프트 전문(개선 전/후)
 
-개선 전: HEAD `b9d9bca`의 `backend/app/services/chat_service.py`  
+개선 전: HEAD `3db4d47`의 `backend/app/services/chat_service.py`  
 개선 후: `backend/app/services/chat_request.py`(새 파일), `backend/app/services/chat_service.py`
 
 | 역할 | 개선 전 | 개선 후 |

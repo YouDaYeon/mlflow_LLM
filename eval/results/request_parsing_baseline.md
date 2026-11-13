@@ -1,7 +1,7 @@
 # 요청 해석 개선 — 평가 질문과 현재(개선 전) 답변
 
 - 측정일: 2026-11-11, 모델 `Qwen3.6-35B-A3B`(chat), MLflow `127.0.0.1:2522`
-- 기준선: **HEAD `b9d9bca`**. 분석 문서의 "최근 실험은 항상 limit=5" 상태와 같은 코드다.
+- 기준선: **HEAD `3db4d47`**. 분석 문서의 "최근 실험은 항상 limit=5" 상태와 같은 코드다.
 - 참고 비교: 커밋하지 않은 작업 트리(최근 실험 `limit/order_by/response_mode` 부분 수정본)도 1회 실행했다.
 - 실행: `eval/compare_request_parsing.py`가 `/chat/ask`에 질문을 보내고 파서 출력, 실제 조회 함수와 인자, 답변 전문을 기록한다.
   - 원본 결과: `eval/results/request_parsing_head.json`, `request_parsing_head_r2.json`, `request_parsing_head_r3.json`, `request_parsing_worktree.json`
