@@ -9,11 +9,6 @@
   - [보고서 및 보조 처리 경로](#보고서-및-보조-처리-경로)
   - [실제 질문 처리 예시](#실제-질문-처리-예시)
 - [빠른 시작](#빠른-시작)
-  - [1. 필요한 환경](#1-필요한-환경)
-  - [2. 환경 변수 설정](#2-환경-변수-설정)
-  - [3. 실행](#3-실행)
-  - [4. 접속 주소](#4-접속-주소)
-  - [5. 첫 질문](#5-첫-질문)
 - [프로젝트 구조](#프로젝트-구조)
 - [상세 문서](#상세-문서)
 
@@ -101,7 +96,7 @@ LLM이 의도를 선택하고 MLflow MCP 도구를 직접 호출하던 방식에
 
 ### 보고서 및 보조 처리 경로
 
-- **새 보고서 생성** 버튼: ①을 거치지 않고 ② 상위 run 조회·정렬 → ③ 보고서용 LLM(`LLAMA_*`)으로 갑니다.
+- **새 보고서 생성** 버튼: ①을 거치지 않고 ② 상위 run 조회·정렬 → ③ 보고서용 LLM(`LLAMA_`*)으로 갑니다.
 - **이 보고서로 질문하기**: ① 다음에 MLflow를 다시 조회하지 않고, 저장된 보고서 본문을 ③에 넘깁니다.
 - **MLflow MCP 에이전트**: 요청 구조로 답할 수 없는 질문은 이 보조 경로로 넘깁니다(`chat_service.py`).
 
@@ -109,8 +104,7 @@ LLM이 의도를 선택하고 MLflow MCP 도구를 직접 호출하던 방식에
 
 ![실제 질문 처리 예시: 최고·최저 run 비교](./image/qa_trace.png)
 
-<details>
-<summary>① 질문 구조화의 전체 출력과 ② 조회 기록</summary>
+① 질문 구조화의 전체 출력과 ② 조회 기록
 
 요청 구조 JSON (LLM 출력)
 
@@ -121,10 +115,9 @@ LLM이 의도를 선택하고 MLflow MCP 도구를 직접 호출하던 방식에
 
 조회 기록: `llm:request_parser` → `list_experiment_names()` → `get_runs('Timm Hub')`
 
-</details>
 
-<details>
-<summary>최종 답변 원문 (화면에 표시된 그대로)</summary>
+
+최종 답변 원문 (화면에 표시된 그대로)
 
 > 적용 조건: 실험 `Timm Hub` · 정렬 `val_acc` 높은 순 · 최고·최저 run
 >
@@ -139,7 +132,7 @@ LLM이 의도를 선택하고 MLflow MCP 도구를 직접 호출하던 방식에
 >
 > ※ 비교한 run의 파라미터는 모두 같습니다.
 
-</details>
+
 
 ---
 
@@ -150,7 +143,7 @@ LLM이 의도를 선택하고 MLflow MCP 도구를 직접 호출하던 방식에
 | 항목 | 조건 |
 |---|---|
 | Docker | Docker Engine + Compose v2 (`docker compose`) |
-| LLM 서버 | **별도 준비 필요.** OpenAI 호환 `chat/completions` API를 제공하는 서버(예: llama.cpp server, vLLM). 해석·챗용(`CHAT_*`)과 보고서용(`LLAMA_*`) 두 개를 설정하며, 같은 서버를 써도 됩니다. 검증에 쓴 모델은 Qwen3.6-35B-A3B(챗), gemma-4-26B-A4B(보고서)입니다. |
+| LLM 서버 | **별도 준비 필요.** OpenAI 호환 `chat/completions` API를 제공하는 서버(예: llama.cpp server, vLLM). 해석·챗용(`CHAT_`*)과 보고서용(`LLAMA_*`) 두 개를 설정하며, 같은 서버를 써도 됩니다. 검증에 쓴 모델은 Qwen3.6-35B-A3B(챗), gemma-4-26B-A4B(보고서)입니다. |
 | MLflow | `docker-compose.yml`에 MLflow 서버(v3.12.0)가 포함되어 있습니다. 볼륨 경로가 개발 서버 기준(`/home/dyyu/MLflow`)이므로 **본인 MLflow 저장 경로로 바꿔야 합니다.** 이미 운영 중인 MLflow를 쓰려면 `mlflow` 서비스를 빼고 `backend`의 `MLFLOW_TRACKING_URI`를 그 주소로 바꾸세요. |
 
 ### 2. 환경 변수 설정
@@ -206,8 +199,7 @@ DistilBERT(`distilbert-base-uncased`)로 5 step짜리 학습을 하이퍼파라�
 2. `dummy-distilbert run 목록 보여줘`
 3. `거기서 final_acc 제일 높은 건?`
 
-<details>
-<summary>로컬 개발 모드 (DB만 Docker, 앱은 호스트에서 실행)</summary>
+로컬 개발 모드 (DB만 Docker, 앱은 호스트에서 실행)
 
 ```bash
 docker compose up -d postgres pgadmin mlflow
@@ -218,7 +210,7 @@ python -m streamlit run frontend/app_2.py
 
 Conda 환경은 `environment.yaml`에 있습니다.
 
-</details>
+
 
 ---
 
